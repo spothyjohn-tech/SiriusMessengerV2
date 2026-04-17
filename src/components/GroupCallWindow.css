@@ -1,0 +1,307 @@
+.group-call-window .group-call-main {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.gc-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.gc-stage--focus {
+  display: flex;
+  flex-direction: column;
+}
+
+.gc-unified-grid {
+  display: grid;
+  flex: 1;
+  min-height: 200px;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  box-sizing: border-box;
+  grid-template-columns: repeat(var(--gc-cols, 3), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  align-content: center;
+  justify-items: stretch;
+}
+
+.gc-cell--tile {
+  aspect-ratio: 1;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.gc-cell--screen-tile {
+  background: #000;
+}
+
+.gc-tile-video {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #000;
+}
+
+.gc-tile-ctx-menu {
+  z-index: 450;
+}
+
+.gc-cell {
+  position: relative;
+  border: none;
+  padding: 0;
+  margin: 0;
+  border-radius: 12px;
+  background: #18181b;
+  color: #fafafa;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  min-width: 0;
+  font: inherit;
+  text-align: center;
+}
+
+.gc-cell--speaking {
+  box-shadow: 0 0 0 3px #22c55e;
+}
+
+.gc-cell-avatar {
+  width: 72px;
+  height: 72px;
+}
+
+.gc-cell-avatar--sm {
+  width: 44px;
+  height: 44px;
+}
+
+.gc-cell-name {
+  position: absolute;
+  bottom: 0.35rem;
+  left: 0.35rem;
+  right: 0.35rem;
+  font-size: 0.7rem;
+  color: #e4e4e7;
+  text-shadow: 0 1px 3px #000;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gc-cell-mic-off {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  color: #f87171;
+  display: flex;
+  pointer-events: none;
+}
+
+.gc-cell-speaking-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 3px #22c55e;
+  pointer-events: none;
+}
+
+.gc-focus-stage {
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+}
+
+.gc-focus-center {
+  width: auto;
+  max-width: min(96vw, 720px);
+  align-self: center;
+}
+
+.gc-focus-main-inner {
+  border: none;
+  padding: 0;
+  margin: 0 auto;
+  background: #000;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  font: inherit;
+}
+
+.gc-focus-main-inner--video {
+  overflow: hidden;
+  width: 100%;
+  min-height: min(50vh, 400px);
+  max-height: min(65vh, 560px);
+}
+
+.gc-focus-video {
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+  max-height: min(62vh, 520px);
+  object-fit: contain;
+}
+
+.gc-focus-main-inner--avatar {
+  background: transparent;
+  gap: 0.75rem;
+  padding: 1rem;
+  min-width: min(80vw, 360px);
+}
+
+.gc-focus-avatar {
+  width: min(40vmin, 200px);
+  height: min(40vmin, 200px);
+  flex-shrink: 0;
+}
+
+.gc-focus-name {
+  font-size: 1rem;
+  color: #fafafa;
+}
+
+.gc-focus-strip {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem 0.75rem;
+  overflow-x: auto;
+  max-height: 120px;
+  align-items: stretch;
+}
+
+.gc-strip-tile {
+  flex: 0 0 auto;
+  width: 96px;
+  min-height: 88px;
+  border-radius: 10px;
+  border: 1px solid #27272a;
+  background: #18181b;
+  color: #fafafa;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  font-size: 0.65rem;
+  overflow: hidden;
+  font: inherit;
+}
+
+.gc-strip-tile--speaking {
+  box-shadow: 0 0 0 2px #22c55e;
+}
+
+.gc-strip-tile span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gc-strip-video {
+  width: 100%;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #000;
+}
+
+.gc-hidden-audio {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.group-call-remote-video {
+  flex: 1;
+  min-height: 200px;
+  background: #000;
+}
+
+.group-call-expand-zone {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0.75rem;
+  z-index: 5;
+}
+
+.group-call-expand-btn {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fafafa;
+  font-size: 1.1rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.group-call-expand-zone:hover .group-call-expand-btn {
+  opacity: 1;
+}
+
+.group-call-window--expanded .group-call-main {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: #000;
+}
+
+.group-call-window--expanded .gc-focus-video {
+  max-height: none;
+}
+
+.group-call-hidden-audio {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.call-controls .call-ctrl-icon {
+  color: #fafafa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-controls button.active .call-ctrl-icon {
+  opacity: 0.65;
+}
