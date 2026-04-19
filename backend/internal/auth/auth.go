@@ -41,19 +41,19 @@ type Argon2Config struct {
 }
 
 
-func NewAuthService(db *gorm.DB, tokenService *services.TokenService) *AuthService {
-    secret := os.Getenv("MESSENGER_JWT_SECRET")
-    if secret == "" {
-        // В production - паникуем или генерируем и сохраняем
-        if os.Getenv("ENVIRONMENT") == "production" {
-            panic("MESSENGER_JWT_SECRET must be set in production")
-        }
+func NewAuthService(db *gorm.DB, tokenService *services.TokenService, secret []byte) *AuthService {
+    // secret := os.Getenv("MESSENGER_JWT_SECRET")
+    // if secret == "" {
+    //     // В production - паникуем или генерируем и сохраняем
+    //     if os.Getenv("ENVIRONMENT") == "production" {
+    //         panic("MESSENGER_JWT_SECRET must be set in production")
+    //     }
         
-        // В development - генерируем случайный ключ
-        secret = generateSecureSecret()
-        //log.Printf("WARNING: Using generated JWT secret for development")
-        os.Setenv("MESSENGER_JWT_SECRET", secret)
-    }
+    //     // В development - генерируем случайный ключ
+    //     secret = generateSecureSecret()
+    //     //log.Printf("WARNING: Using generated JWT secret for development")
+    //     os.Setenv("MESSENGER_JWT_SECRET", secret)
+    // }
     
     // Проверяем минимальную длину секрета
     if len(secret) < 32 {
@@ -62,7 +62,7 @@ func NewAuthService(db *gorm.DB, tokenService *services.TokenService) *AuthServi
     
      return &AuthService{
         db:           db,
-        jwtSecret:    []byte(secret),
+        jwtSecret:    secret,
         tokenService: tokenService,
     }
 
@@ -484,9 +484,9 @@ func getArgon2Config() Argon2Config {
 }
 
 func (s *AuthService) Register(username, email, password, publicKey string) (*models.User, error) {
-    // ... существующие проверки
+    // Check if user exists
      var existingUser models.User
-	if err := s.db.Where("email = ?", email).First(&existingUser).Error; err == nil { // !!!!!!!!!!!!!!
+	if err := s.db.Where("email = ?", email).First(&existingUser).Error; err == nil { 
         return nil, errors.New("user already exists")
     }
     // Хеширование пароля с улучшенными параметрами Argon2

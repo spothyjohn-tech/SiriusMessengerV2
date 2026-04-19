@@ -29,6 +29,9 @@ func NewWebSocketHandler(hub *wshub.Hub, authSvc *auth.AuthService) *WebSocketHa
 }
 
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
+        log.Printf("WebSocket request - Query token: %v, Header token: %v", 
+        c.Query("token") != "", 
+        c.GetHeader("Sec-WebSocket-Protocol") != "")
     token := c.GetHeader("Sec-WebSocket-Protocol")
     if token == "" {
         token = c.Query("token")
@@ -36,9 +39,11 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
             log.Printf("WARNING: Token passed via query parameter for user connection")
         }
     }
-    
+    log.Printf("Raw token: %s", token) // Посмотрим что приходит
+
     // Убираем префикс "Bearer " если есть
     token = strings.TrimPrefix(token, "Bearer ")
+    log.Printf("Token after trim: %s", token[:20]+"...") // Первые 20 символов
     
     if token == "" {
         c.AbortWithStatus(http.StatusUnauthorized)
@@ -47,6 +52,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 
     claims, err := h.auth.ValidateToken(token)
     if err != nil {
+         log.Printf("ERROR: Token validation failed: %v", err) // ВАЖНО! Увидим причину
         c.AbortWithStatus(http.StatusUnauthorized)
         return
     }

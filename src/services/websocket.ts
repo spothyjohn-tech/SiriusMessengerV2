@@ -47,7 +47,10 @@ class WebSocketService {
     } else {
       base = 'ws://localhost:8080';
     }
-    this.ws = new WebSocket(`${base.replace(/\/$/, '')}/ws?token=${encodeURIComponent(token)}`);
+    // this.ws = new WebSocket(`${base.replace(/\/$/, '')}/ws?token=${encodeURIComponent(token)}`);
+    // Вернуться к URL, но исправить бэкенд
+    
+    this.ws = new WebSocket(`${base}/ws?token=${encodeURIComponent(token)}`);
 
     this.ws.onmessage = (event) => {
       const data = JSON.parse(event.data);

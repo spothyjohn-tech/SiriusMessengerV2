@@ -17,12 +17,18 @@ import (
 	"messenger/internal/middleware"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Ошибка загрузки .env файла")
+	}
+	jwtSecret := []byte(os.Getenv("MESSENGER_JWT_SECRET"))
 	// Initialize database
 	db := initDB()
 
@@ -42,7 +48,7 @@ func main() {
 
 	// Initialize services
 	tokenService := services.NewTokenService(db) // Сначала создаем tokenService
-	authService := auth.NewAuthService(db, tokenService) // Затем передаем его в authService
+	authService := auth.NewAuthService(db, tokenService, jwtSecret) // Затем передаем его в authService
 	
 	// Запускаем фоновую очистку токенов
 	go func() {
