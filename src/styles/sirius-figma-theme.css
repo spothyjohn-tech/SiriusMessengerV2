@@ -243,6 +243,47 @@
   text-underline-offset: 2px;
 }
 
+.sf-auth-lang-switch {
+  position: absolute;
+  top: 1rem;
+  right: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  z-index: 10;
+}
+
+.sf-auth-lang-btn {
+  background: transparent;
+  border: none;
+  color: var(--sf-zinc-500);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  text-transform: uppercase;
+}
+
+.sf-auth-lang-btn:hover {
+  color: var(--sf-zinc-300);
+}
+
+.sf-auth-lang-btn--active {
+  color: var(--sf-accent, #8b5cf6);
+}
+
+.sf-auth-lang-btn--active:hover {
+  color: var(--sf-accent, #8b5cf6);
+}
+
+.sf-auth-lang-sep {
+  color: var(--sf-zinc-600);
+  font-size: 0.75rem;
+  user-select: none;
+}
+
 /* ——— App shell ——— */
 .sf-app {
   display: flex;
