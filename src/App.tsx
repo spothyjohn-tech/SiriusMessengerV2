@@ -25,13 +25,14 @@ import {
   setUserBlocked,
 } from './utils/chatPrefs';
 import { mergeServerClearedAt } from './utils/convClear';
-import { t } from './utils/i18n';
+import { t, getStoredLang, type AppLang  } from './utils/i18n';
 import {
   loadStoredPreview,
   previewForWsMessage,
   previewFromMessageType,
   saveStoredPreview,
 } from './utils/convPreview';
+
 
 function readStoredUser(): User | null {
   try {
@@ -138,7 +139,7 @@ function App() {
   const [friendOutgoing, setFriendOutgoing] = useState<FriendRequest[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [sidebarQuery, setSidebarQuery] = useState('');
-
+ 
   const [addFriendOpen, setAddFriendOpen] = useState(false);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -165,6 +166,9 @@ function App() {
     activeGroupCall ||
     incomingGroupInvite
   );
+
+  const [currentLang, setCurrentLang] = useState<AppLang>(() => getStoredLang());
+  const [languageKey, setLanguageKey] = useState(0);
 
   const endAllCallUi = useCallback(() => {
     setOutgoingCall(null);
@@ -332,6 +336,13 @@ function App() {
     }
   };
 
+    const handleLanguageChange = useCallback(() => {
+    const newLang = getStoredLang();
+    setCurrentLang(newLang);
+    setLanguageKey(prev => prev + 1);
+    setUiLocale(n => n + 1); // Обновляем и существующий uiLocale для других компонентов
+  }, []);
+
   const performLogout = useCallback(() => {
     websocketService.disconnect();
     authService.logout();
@@ -343,6 +354,7 @@ function App() {
   }, [endAllCallUi]);
 
   const openOrCreateDM = async (other: User) => {
+
     if (!currentUser) return;
     const existing = conversations.find(
       (c) =>
@@ -514,6 +526,8 @@ function App() {
         busy={busy}
         onLogin={handleLogin}
         onRegister={handleRegister}
+        currentLang={currentLang}         
+        onLanguageChange={handleLanguageChange}
       />
     );
   }
@@ -538,7 +552,7 @@ function App() {
     : null;
 
   return (
-    <div className="sf-app">
+    <div className="sf-app" key={languageKey}>
       <aside className="sf-sidebar">
         <div className="sf-sidebar-top">
           <div className="sf-sidebar-title-row">
