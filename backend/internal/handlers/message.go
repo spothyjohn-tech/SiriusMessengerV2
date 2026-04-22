@@ -1,14 +1,20 @@
 package handlers
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"messenger/internal/models"
 	"messenger/internal/services"
 	"messenger/internal/websocket"
 )
@@ -16,17 +22,18 @@ import (
 type MessageHandler struct {
 	messages *services.MessageService
 	hub      *websocket.Hub
+	db       *gorm.DB
 }
 
-func NewMessageHandler(ms *services.MessageService, hub *websocket.Hub) *MessageHandler {
-	return &MessageHandler{messages: ms, hub: hub}
+func NewMessageHandler(ms *services.MessageService, hub *websocket.Hub, db *gorm.DB) *MessageHandler {
+	return &MessageHandler{messages: ms, hub: hub, db: db}
 }
 
 func (h *MessageHandler) GetUsers(c *gin.Context) {
 	userID := c.GetString("userId")
 	users, err := h.messages.GetUsers(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error.server"})
 		return
 	}
 	c.JSON(http.StatusOK, users)
@@ -50,6 +57,35 @@ func (h *MessageHandler) RemoveFriend(c *gin.Context) {
 		return
 	}
 	h.pushFriendsUpdated(userID, friendID)
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// BlockUser prevents the target from sending any messages/signaling to the caller.
+func (h *MessageHandler) BlockUser(c *gin.Context) {
+	userID := c.GetString("userId")
+	targetID := strings.TrimSpace(c.Param("userId"))
+	if targetID == "" || targetID == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "error.badRequest"})
+		return
+	}
+	if err := h.messages.SetBlocked(userID, targetID, true); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "error.unknown"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *MessageHandler) UnblockUser(c *gin.Context) {
+	userID := c.GetString("userId")
+	targetID := strings.TrimSpace(c.Param("userId"))
+	if targetID == "" || targetID == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "error.badRequest"})
+		return
+	}
+	if err := h.messages.SetBlocked(userID, targetID, false); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "error.unknown"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -243,7 +279,11 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 	msg, err := h.messages.SendMessage(userID, req.ConversationID, req.EncryptedContent, req.IV, req.SenderKey, req.MessageType)
 	if err != nil {
 		if errors.Is(err, services.ErrNotParticipant) {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			c.JSON(http.StatusForbidden, gin.H{"error": "error.forbidden"})
+			return
+		}
+		if errors.Is(err, services.ErrBlocked) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "error.blocked"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -418,6 +458,123 @@ func (h *MessageHandler) HandleCallAnswer(c *gin.Context) {
 
 func (h *MessageHandler) HandleICECandidate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *MessageHandler) UploadFile(c *gin.Context) {
+	userID := c.GetString("userId")
+	conversationID := strings.TrimSpace(c.PostForm("conversationId"))
+	if conversationID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "error.badRequest"})
+		return
+	}
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "error.badRequest"})
+		return
+	}
+	src, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "error.badRequest"})
+		return
+	}
+	defer src.Close()
+
+	mime := fileHeader.Header.Get("Content-Type")
+	record, err := h.messages.StoreUploadedFile(userID, conversationID, fileHeader.Filename, mime, src, fileHeader.Size)
+	if err != nil {
+		if errors.Is(err, services.ErrNotParticipant) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "error.forbidden"})
+			return
+		}
+		if err.Error() == "file too large" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "error.fileTooLarge"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "error.unknown"})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"id":       record.ID,
+		"name":     record.OriginalName,
+		"mime":     record.MimeType,
+		"size":     record.SizeBytes,
+		"fileLink": "/api/files/" + record.ID,
+	})
+}
+
+// UploadMessageFile is the canonical upload endpoint used by the frontend:
+// POST /api/messages/upload with multipart/form-data field "file".
+func (h *MessageHandler) UploadMessageFile(c *gin.Context) {
+	h.UploadFile(c)
+}
+
+func (h *MessageHandler) DownloadFile(c *gin.Context) {
+	userID := c.GetString("userId")
+	fileID := c.Param("fileId")
+	var f models.UploadedFile
+	if err := h.db.First(&f, "id = ?", fileID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	ok, err := h.messages.IsUserInConversation(userID, f.ConversationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "not a participant"})
+		return
+	}
+	key, err := getFileCipherKey()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize cipher"})
+		return
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize cipher"})
+		return
+	}
+	nonce, err := base64.StdEncoding.DecodeString(f.Nonce)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid file nonce"})
+		return
+	}
+	ct, err := os.ReadFile(f.StoragePath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	plain, err := gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt file"})
+		return
+	}
+	c.Header("Content-Type", f.MimeType)
+	c.Header("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(f.OriginalName, `"`, "")+`"`)
+	c.Data(http.StatusOK, f.MimeType, plain)
+}
+
+func getFileCipherKey() ([]byte, error) {
+	raw := strings.TrimSpace(os.Getenv("FILE_ENCRYPTION_KEY"))
+	if raw == "" {
+		return nil, errors.New("FILE_ENCRYPTION_KEY is not configured")
+	}
+	if b, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		if len(b) == 32 {
+			return b, nil
+		}
+	}
+	if len(raw) == 32 {
+		return []byte(raw), nil
+	}
+	return nil, errors.New("FILE_ENCRYPTION_KEY must be 32 bytes or base64-encoded 32 bytes")
 }
 
 type patchConversationRequest struct {

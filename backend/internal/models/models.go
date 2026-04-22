@@ -6,8 +6,8 @@ import (
 
 type User struct {
 	ID                  string    `gorm:"primaryKey;type:varchar(36)" json:"id"`
-	Username string `gorm:"uniqueIndex:uniq_username_discriminator;index;not null" json:"username"`
-	Discriminator string `gorm:"index;not null;type:varchar(4);uniqueIndex:uniq_username_discriminator;default:'0000'" json:"discriminator"`
+	Username            string    `gorm:"uniqueIndex:uniq_username_discriminator;index;not null" json:"username"`
+	Discriminator       string    `gorm:"index;not null;type:varchar(4);uniqueIndex:uniq_username_discriminator;default:'0000'" json:"discriminator"`
 	Email               string    `gorm:"uniqueIndex;not null" json:"email"`
 	PasswordHash        string    `gorm:"not null" json:"-"`
 	PublicKey           string    `gorm:"type:text;not null" json:"publicKey"`
@@ -17,7 +17,7 @@ type User struct {
 	LastSeen            time.Time `json:"lastSeen"`
 	CreatedAt           time.Time `json:"createdAt"`
 	UpdatedAt           time.Time `json:"updatedAt"`
-	TokenVersion int `gorm:"default:0" json:"-"`
+	TokenVersion        int       `gorm:"default:0" json:"-"`
 }
 
 type Message struct {
@@ -87,14 +87,14 @@ type CallSession struct {
 
 type FriendRequest struct {
 	ID         string    `gorm:"primaryKey;type:varchar(36)" json:"id"`
-	SenderID string    `gorm:"index;not null;type:varchar(36);column:sender_id" json:"senderId"`
-	ReceiverID    string    `gorm:"index;not null;type:varchar(36);column:receiver_id" json:"receiverId"`
+	SenderID   string    `gorm:"index;not null;type:varchar(36);column:sender_id" json:"senderId"`
+	ReceiverID string    `gorm:"index;not null;type:varchar(36);column:receiver_id" json:"receiverId"`
 	Status     string    `gorm:"index;default:pending" json:"status"` // pending, accepted, declined, canceled
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 
 	Sender   User `gorm:"foreignKey:SenderID" json:"sender,omitempty"`
-	Receiver   User `gorm:"foreignKey:ReceiverID" json:"receiver,omitempty"`
+	Receiver User `gorm:"foreignKey:ReceiverID" json:"receiver,omitempty"`
 }
 
 type Friendship struct {
@@ -104,10 +104,30 @@ type Friendship struct {
 }
 
 type RefreshToken struct {
-    ID        string    `gorm:"primaryKey;type:varchar(36)"`
-    UserID    string    `gorm:"index;not null;type:varchar(36)"`
-    Token     string    `gorm:"uniqueIndex;type:text"`
-    ExpiresAt time.Time
-    Revoked   bool      `gorm:"default:false"`
-    CreatedAt time.Time
+	ID        string `gorm:"primaryKey;type:varchar(36)"`
+	UserID    string `gorm:"index;not null;type:varchar(36)"`
+	Token     string `gorm:"uniqueIndex;type:text"`
+	ExpiresAt time.Time
+	Revoked   bool `gorm:"default:false"`
+	CreatedAt time.Time
+}
+
+type UploadedFile struct {
+	ID             string    `gorm:"primaryKey;type:varchar(36)" json:"id"`
+	OwnerID        string    `gorm:"index;not null;type:varchar(36)" json:"ownerId"`
+	ConversationID string    `gorm:"index;not null;type:varchar(36)" json:"conversationId"`
+	OriginalName   string    `gorm:"not null" json:"originalName"`
+	MimeType       string    `gorm:"not null" json:"mimeType"`
+	SizeBytes      int64     `gorm:"not null" json:"sizeBytes"`
+	StoragePath    string    `gorm:"not null" json:"-"`
+	Nonce          string    `gorm:"type:text;not null" json:"-"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+// UserBlock represents a "recipient blocks sender" relation.
+// If a user A blocks user B, then B must not be able to send messages/signaling to A.
+type UserBlock struct {
+	BlockerID string    `gorm:"primaryKey;type:varchar(36);index" json:"blockerId"`
+	BlockedID string    `gorm:"primaryKey;type:varchar(36);index" json:"blockedId"`
+	CreatedAt time.Time `json:"createdAt"`
 }

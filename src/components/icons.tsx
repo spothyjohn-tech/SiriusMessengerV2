@@ -68,7 +68,7 @@ export function IconPhone(props: React.SVGProps<SVGSVGElement>) {
 export function IconPhoneHangup(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg {...iconProps} {...props}>
-      <line x1="6" y1="12" x2="18" y2="12" strokeWidth={2.5} />
+      <path d="M8 15c2.4-1.8 5.6-1.8 8 0l2 1.5-1.2 1.5-2.6-1a2 2 0 0 0-2 .5l-.7.7-.7-.7a2 2 0 0 0-2-.5l-2.6 1L6 16.5Z" />
     </svg>
   );
 }
@@ -131,6 +131,19 @@ export function IconVideo(props: React.SVGProps<SVGSVGElement>) {
     <svg {...iconProps} {...props}>
       <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" />
       <rect x="2" y="6" width="14" height="12" rx="2" />
+    </svg>
+  );
+}
+
+export function IconVideoOff(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path
+        d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"
+        opacity={0.45}
+      />
+      <rect x="2" y="6" width="14" height="12" rx="2" />
+      <line x1="2" y1="2" x2="22" y2="22" strokeWidth={2} />
     </svg>
   );
 }

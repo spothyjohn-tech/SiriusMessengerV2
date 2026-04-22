@@ -1,6 +1,7 @@
 import { Message } from '../types';
 import { copySummaryFromPayload, parseDecryptedPayload } from '../components/MessageBubble';
 import { loadPlainCache } from './messagePlainCache';
+import { t } from './i18n';
 
 const PREVIEW_KEY = 'sirius_conv_sidebar_preview';
 const MAX_LEN = 40;
@@ -14,16 +15,16 @@ export function truncatePreview(text: string, max = MAX_LEN): string {
 export function previewFromMessageType(mt: Message['messageType']): string {
   switch (mt) {
     case 'voice':
-      return '🎤 Voice message';
+      return `🎤 ${t('msg.voiceMessage')}`;
     case 'sticker':
-      return '😊 Sticker';
+      return `😊 ${t('preview.sticker')}`;
     case 'image':
     case 'file':
-      return '📷 Photo';
+      return `📷 ${t('preview.photo')}`;
     case 'call':
-      return '📞 Call';
+      return `📞 ${t('preview.call')}`;
     default:
-      return 'Message';
+      return t('preview.message');
   }
 }
 
@@ -32,10 +33,10 @@ export function previewFromDecryptedPlain(plain: string): string {
   const raw = copySummaryFromPayload(p);
   if (p.kind === 'file' && raw.startsWith('File:')) {
     const isPhoto = p.mime.toLowerCase().startsWith('image/') || p.mime === 'image/gif';
-    return isPhoto ? '📷 Photo' : truncatePreview(raw);
+    return isPhoto ? `📷 ${t('preview.photo')}` : truncatePreview(raw);
   }
-  if (p.kind === 'voice') return '🎤 Voice message';
-  if (p.kind === 'sticker') return '😊 Sticker';
+  if (p.kind === 'voice') return `🎤 ${t('msg.voiceMessage')}`;
+  if (p.kind === 'sticker') return `😊 ${t('preview.sticker')}`;
   return truncatePreview(raw);
 }
 

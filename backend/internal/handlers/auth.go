@@ -22,6 +22,8 @@ type registerRequest struct {
     Email     string `json:"email" binding:"required,email"`
     Password  string `json:"password" binding:"required,min=8"`
     PublicKey string `json:"publicKey" binding:"required"`
+    // Encrypted (client-side) backup of the user's private key. Optional for backward compatibility.
+    PrivateKeyEncrypted string `json:"privateKeyEncrypted"`
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -31,7 +33,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
         return
     }
 
-    user, err := h.auth.Register(req.Username, req.Email, req.Password, req.PublicKey)
+    user, err := h.auth.Register(req.Username, req.Email, req.Password, req.PublicKey, req.PrivateKeyEncrypted)
     if err != nil {
         c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
         return
@@ -68,6 +70,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
         "accessToken":  accessToken,
         "refreshToken": refreshToken,
         "user":         publicUser(u),
+        // Allow new devices/browsers to restore decrypt capability without server ever seeing the plaintext private key.
+        "privateKeyEncrypted": u.PrivateKeyEncrypted,
     })
 }
 
@@ -82,13 +86,13 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
         return
     }
 
-    accessToken, err := h.auth.RefreshAccessToken(req.RefreshToken)
+    accessToken, refreshToken, err := h.auth.RefreshAccessToken(req.RefreshToken)
     if err != nil {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
         return
     }
 
-    c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
+    c.JSON(http.StatusOK, gin.H{"accessToken": accessToken, "refreshToken": refreshToken})
 }
 
 func publicUser(u *models.User) gin.H {
@@ -160,6 +164,30 @@ func (h *AuthHandler) LogoutAll(c *gin.Context) {
     }
     
     c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+type privateKeyBackupRequest struct {
+	PrivateKeyEncrypted string `json:"privateKeyEncrypted" binding:"required"`
+}
+
+// UpsertPrivateKeyBackup stores an encrypted private key backup for this account (only if empty).
+func (h *AuthHandler) UpsertPrivateKeyBackup(c *gin.Context) {
+	var req privateKeyBackupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	userID := c.GetString("userId")
+	updated, err := h.auth.SetPrivateKeyEncryptedIfEmpty(userID, req.PrivateKeyEncrypted)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !updated {
+		c.JSON(http.StatusConflict, gin.H{"error": "backup already exists"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 type changePasswordRequest struct {

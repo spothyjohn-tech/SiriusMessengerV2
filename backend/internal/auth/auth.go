@@ -1,79 +1,78 @@
 package auth
 
 import (
-"crypto/rand"
-    "encoding/base64"
-    "errors"
-    "fmt"
-    "os"
-    "runtime"
-    "strings"
-    "time"
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"os"
+	"runtime"
+	"strings"
+	"time"
 
-    "github.com/gin-gonic/gin"
-    "github.com/golang-jwt/jwt/v5"
-    "golang.org/x/crypto/argon2"
-    "gorm.io/gorm"
 
-    "messenger/internal/models"
-    "messenger/internal/services"
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/argon2"
+	"gorm.io/gorm"
 
+	"messenger/internal/models"
+	"messenger/internal/services"
 )
 
 type AuthService struct {
-    db       *gorm.DB
-    jwtSecret []byte
-    tokenService *services.TokenService
+	db           *gorm.DB
+	jwtSecret    []byte
+	tokenService *services.TokenService
 }
 
 type Claims struct {
-    UserID string `json:"userId"`
-    TokenType string `json:"tokenType"` // "access" or "refresh"
-    TokenVersion int    `json:"tokenVersion"`
-    jwt.RegisteredClaims
+	UserID       string `json:"userId"`
+	TokenType    string `json:"tokenType"` // "access" or "refresh"
+	TokenVersion int    `json:"tokenVersion"`
+	jwt.RegisteredClaims
 }
 
 type Argon2Config struct {
-    Time    uint32 // Количество итераций
-    Memory  uint32 // Память в KB
-    Threads uint8  // Количество потоков
-    KeyLen  uint32 // Длина ключа
+	Time    uint32 // Количество итераций
+	Memory  uint32 // Память в KB
+	Threads uint8  // Количество потоков
+	KeyLen  uint32 // Длина ключа
 }
 
+func NewAuthService(db *gorm.DB, tokenService *services.TokenService, secret []byte) *AuthService {
+	// secret := os.Getenv("MESSENGER_JWT_SECRET")
+	// if secret == "" {
+	//     // В production - паникуем или генерируем и сохраняем
+	//     if os.Getenv("ENVIRONMENT") == "production" {
+	//         panic("MESSENGER_JWT_SECRET must be set in production")
+	//     }
 
-func NewAuthService(db *gorm.DB, tokenService *services.TokenService) *AuthService {
-    secret := os.Getenv("MESSENGER_JWT_SECRET")
-    if secret == "" {
-        // В production - паникуем или генерируем и сохраняем
-        if os.Getenv("ENVIRONMENT") == "production" {
-            panic("MESSENGER_JWT_SECRET must be set in production")
-        }
-        
-        // В development - генерируем случайный ключ
-        secret = generateSecureSecret()
-        //log.Printf("WARNING: Using generated JWT secret for development")
-        os.Setenv("MESSENGER_JWT_SECRET", secret)
-    }
-    
-    // Проверяем минимальную длину секрета
-    if len(secret) < 32 {
-        panic("JWT secret must be at least 32 characters long")
-    }
-    
-     return &AuthService{
-        db:           db,
-        jwtSecret:    []byte(secret),
-        tokenService: tokenService,
-    }
+	//     // В development - генерируем случайный ключ
+	//     secret = generateSecureSecret()
+	//     //log.Printf("WARNING: Using generated JWT secret for development")
+	//     os.Setenv("MESSENGER_JWT_SECRET", secret)
+	// }
+
+	// Проверяем минимальную длину секрета
+	if len(secret) < 32 {
+		panic("JWT secret must be at least 32 characters long")
+	}
+
+	return &AuthService{
+		db:           db,
+		jwtSecret:    secret,
+		tokenService: tokenService,
+	}
 
 }
 
 func generateSecureSecret() string {
-    bytes := make([]byte, 32)
-    if _, err := rand.Read(bytes); err != nil {
-        panic("failed to generate secure secret: " + err.Error())
-    }
-    return base64.URLEncoding.EncodeToString(bytes)
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		panic("failed to generate secure secret: " + err.Error())
+	}
+	return base64.URLEncoding.EncodeToString(bytes)
 }
 
 // func (s *AuthService) Register(username, email, password, publicKey string) (*models.User, error) {
@@ -82,15 +81,15 @@ func generateSecureSecret() string {
 // 	if err := s.db.Where("email = ?", email).First(&existingUser).Error; err == nil {
 //         return nil, errors.New("user already exists")
 //     }
-    
+
 //     // Hash password with Argon2
 //     salt := make([]byte, 16)
 //     rand.Read(salt)
 //     hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
-    
+
 //     // Store salt + hash
 //     passwordHash := base64.StdEncoding.EncodeToString(salt) + ":" + base64.StdEncoding.EncodeToString(hash)
-    
+
 // 	var disc string
 // 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 // 		d, err := allocateDiscriminator(tx, username)
@@ -114,11 +113,11 @@ func generateSecureSecret() string {
 //         CreatedAt:           time.Now(),
 //         UpdatedAt:           time.Now(),
 //     }
-    
+
 //     if err := s.db.Create(user).Error; err != nil {
 //         return nil, err
 //     }
-    
+
 //     return user, nil
 // }
 
@@ -168,35 +167,35 @@ func (s *AuthService) BackfillDiscriminators() error {
 //     if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
 //         return "", "", errors.New("invalid credentials")
 //     }
-    
+
 //     // Verify password
 //     parts := splitHash(user.PasswordHash)
 //     if len(parts) != 2 {
 //         return "", "", errors.New("invalid password hash")
 //     }
-    
+
 //     salt, _ := base64.StdEncoding.DecodeString(parts[0])
 //     storedHash, _ := base64.StdEncoding.DecodeString(parts[1])
-    
+
 //     hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
 //     if !compareHash(hash, storedHash) {
 //         return "", "", errors.New("invalid credentials")
 //     }
-    
+
 //     // Generate tokens
 //     accessToken, err := s.generateToken(user.ID, 15*time.Minute)
 //     if err != nil {
 //         return "", "", err
 //     }
-    
+
 //     refreshToken, err := s.generateToken(user.ID, 7*24*time.Hour)
 //     if err != nil {
 //         return "", "", err
 //     }
-    
+
 //     // Update user status
 //     s.db.Model(&user).Update("online", true)
-    
+
 //     return accessToken, refreshToken, nil
 // }
 
@@ -204,134 +203,175 @@ func (s *AuthService) BackfillDiscriminators() error {
 //     token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 //         return s.jwtSecret, nil
 //     })
-    
+
 //     if err != nil {
 //         return nil, err
 //     }
-    
+
 //     if claims, ok := token.Claims.(*Claims); ok && token.Valid {
 //         return claims, nil
 //     }
-    
+
 //     return nil, errors.New("invalid token")
 // }
 
 func (s *AuthService) generateToken(userID string, expiration time.Duration, tokenType string) (string, error) {
- var user models.User
+    var user models.User
     if err := s.db.Select("token_version").First(&user, "id = ?", userID).Error; err != nil {
         return "", err
     }
+
+    now := time.Now().UTC() // Всегда используем UTC
     
     claims := &Claims{
         UserID:       userID,
         TokenType:    tokenType,
         TokenVersion: user.TokenVersion,
         RegisteredClaims: jwt.RegisteredClaims{
-            ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiration)),
-            IssuedAt:  jwt.NewNumericDate(time.Now()),
-            NotBefore: jwt.NewNumericDate(time.Now()),
+            ExpiresAt: jwt.NewNumericDate(now.Add(expiration)),
+            IssuedAt:  jwt.NewNumericDate(now),
+            NotBefore: jwt.NewNumericDate(now),
         },
     }
-    
+
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
     return token.SignedString(s.jwtSecret)
 }
 
 func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
-    token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-        return s.jwtSecret, nil
-    })
-    
-    if err != nil {
-        return nil, err
-    }
-    
-    if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-        // Проверяем версию токена
-        var user models.User
-        if err := s.db.Select("token_version").First(&user, "id = ?", claims.UserID).Error; err != nil {
-            return nil, errors.New("user not found")
-        }
-        
-        if claims.TokenVersion != user.TokenVersion {
-            return nil, errors.New("token revoked")
-        }
-        
-        return claims, nil
-    }
-    
-    return nil, errors.New("invalid token")
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		return s.jwtSecret, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		// Проверяем версию токена
+		var user models.User
+		if err := s.db.Select("token_version").First(&user, "id = ?", claims.UserID).Error; err != nil {
+			return nil, errors.New("user not found")
+		}
+
+		if claims.TokenVersion != user.TokenVersion {
+			return nil, errors.New("token revoked")
+		}
+
+		return claims, nil
+	}
+
+	return nil, errors.New("invalid token")
 }
 
+// func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
+//     // Парсим без проверки времени
+//     parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+    
+//     token, err := parser.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+//         return s.jwtSecret, nil
+//     })
+
+//     if err != nil {
+//         log.Printf("Token validation error: %v", err)
+//         return nil, err
+//     }
+
+//     if claims, ok := token.Claims.(*Claims); ok {
+//         // Проверяем только версию токена, но не время
+//         var user models.User
+//         if err := s.db.Select("token_version").First(&user, "id = ?", claims.UserID).Error; err != nil {
+//             log.Printf("User not found for token: %v", err)
+//             return nil, errors.New("user not found")
+//         }
+
+//         if claims.TokenVersion != user.TokenVersion {
+//             log.Printf("Token version mismatch: token=%d, user=%d", claims.TokenVersion, user.TokenVersion)
+//             return nil, errors.New("token revoked")
+//         }
+
+//         return claims, nil
+//     }
+
+//     return nil, errors.New("invalid token")
+// }
+
 func (s *AuthService) ChangePassword(userID, oldPassword, newPassword string) error {
-    var user models.User
-    if err := s.db.First(&user, "id = ?", userID).Error; err != nil {
-        return err
-    }
-    
-    // Используем verifyPassword вместо прямого разбора
-    if !s.verifyPassword(oldPassword, user.PasswordHash) {
-        return errors.New("invalid old password")
-    }
-    
-    // Хешируем новый пароль с актуальными параметрами
-    config := getArgon2Config()
-    newSalt := make([]byte, 16)
-    if _, err := rand.Read(newSalt); err != nil {
-        return err
-    }
-    
-    newHash := argon2.IDKey(
-        []byte(newPassword), 
-        newSalt, 
-        config.Time,
-        config.Memory,
-        config.Threads,
-        config.KeyLen,
-    )
-    
-    newPasswordHash := fmt.Sprintf("%d:%d:%s:%s",
-        config.Time,
-        config.Memory,
-        base64.StdEncoding.EncodeToString(newSalt),
-        base64.StdEncoding.EncodeToString(newHash),
-    )
-    
-    // Обновляем пароль, инкрементируем версию токена и отзываем все refresh токены
-    return s.db.Transaction(func(tx *gorm.DB) error {
-        if err := tx.Model(&user).Updates(map[string]interface{}{
-            "password_hash": newPasswordHash,
-            "token_version": gorm.Expr("token_version + 1"),
-            "updated_at":    time.Now(),
-        }).Error; err != nil {
-            return err
-        }
-        
-        // Отзываем все refresh токены пользователя
-        return tx.Model(&models.RefreshToken{}).
-            Where("user_id = ?", userID).
-            Update("revoked", true).Error
-    })
+	var user models.User
+	if err := s.db.First(&user, "id = ?", userID).Error; err != nil {
+		return err
+	}
+
+	// Используем verifyPassword вместо прямого разбора
+	if !s.verifyPassword(oldPassword, user.PasswordHash) {
+		return errors.New("invalid old password")
+	}
+
+	// Хешируем новый пароль с актуальными параметрами
+	config := getArgon2Config()
+	newSalt := make([]byte, 16)
+	if _, err := rand.Read(newSalt); err != nil {
+		return err
+	}
+
+	newHash := argon2.IDKey(
+		[]byte(newPassword),
+		newSalt,
+		config.Time,
+		config.Memory,
+		config.Threads,
+		config.KeyLen,
+	)
+
+	newPasswordHash := fmt.Sprintf("%d:%d:%s:%s",
+		config.Time,
+		config.Memory,
+		base64.StdEncoding.EncodeToString(newSalt),
+		base64.StdEncoding.EncodeToString(newHash),
+	)
+
+	// Обновляем пароль, инкрементируем версию токена и отзываем все refresh токены
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&user).Updates(map[string]interface{}{
+			"password_hash": newPasswordHash,
+			"token_version": gorm.Expr("token_version + 1"),
+			"updated_at":    time.Now(),
+		}).Error; err != nil {
+			return err
+		}
+
+		// Отзываем все refresh токены пользователя
+		return tx.Model(&models.RefreshToken{}).
+			Where("user_id = ?", userID).
+			Update("revoked", true).Error
+	})
 }
 
 func (s *AuthService) GetUserByID(id string) (*models.User, error) {
-    var user models.User
-    if err := s.db.First(&user, "id = ?", id).Error; err != nil {
-        return nil, err
-    }
-    return &user, nil
+	var user models.User
+	if err := s.db.First(&user, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 func (s *AuthService) GetUserByEmail(email string) (*models.User, error) {
-    var user models.User
-    if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
-        return nil, err
-    }
-    return &user, nil
+	var user models.User
+	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 func (s *AuthService) SetUserOffline(userID string) error {
 	return s.db.Model(&models.User{}).Where("id = ?", userID).Update("online", false).Error
+}
+
+func (s *AuthService) SetUserOnline(userID string) error {
+	return s.db.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"online":    true,
+		"last_seen": time.Now(),
+	}).Error
 }
 
 // UpdateProfile updates username and/or avatar for the given user. Empty avatar string clears it.
@@ -373,147 +413,179 @@ func (s *AuthService) UpdateProfile(userID string, username *string, avatar *str
 }
 
 // RefreshAccessToken issues a new access token from a valid refresh JWT.
-func (s *AuthService) RefreshAccessToken(refreshToken string) (string, error) {
-    rt, err := s.tokenService.ValidateRefreshToken(refreshToken)
-    if err != nil {
-        return "", errors.New("invalid or expired refresh token")
-    }
+func (s *AuthService) RefreshAccessToken(refreshToken string) (newAccessToken string, newRefreshToken string, err error) {
+	rt, err := s.tokenService.ValidateRefreshToken(refreshToken)
+	if err != nil {
+		return "", "", errors.New("invalid or expired refresh token")
+	}
 
-    claims, err := s.ValidateToken(refreshToken)
-    if err != nil {
-        return "", err
-    }
-     if claims.TokenType != "refresh" {
-        return "", errors.New("invalid token type")
-    }
-     // Проверяем что userID совпадает
-    if claims.UserID != rt.UserID {
-        return "", errors.New("token user mismatch")
-    }
-    return s.generateToken(claims.UserID, 15*time.Minute, "access")
+	claims, err := s.ValidateToken(refreshToken)
+	if err != nil {
+		return "", "", err
+	}
+	if claims.TokenType != "refresh" {
+		return "", "", errors.New("invalid token type")
+	}
+	// Проверяем что userID совпадает
+	if claims.UserID != rt.UserID {
+		return "", "", errors.New("token user mismatch")
+	}
+
+	// Rotate refresh token (one-time use).
+	newAccessToken, err = s.generateToken(claims.UserID, 15*time.Minute, "access")
+	if err != nil {
+		return "", "", err
+	}
+	newRefreshToken, err = s.generateToken(claims.UserID, 7*24*time.Hour, "refresh")
+	if err != nil {
+		return "", "", err
+	}
+	if err := s.tokenService.RotateRefreshToken(
+		claims.UserID,
+		refreshToken,
+		newRefreshToken,
+		time.Now().Add(7*24*time.Hour),
+	); err != nil {
+		return "", "", errors.New("failed to rotate refresh token")
+	}
+	return newAccessToken, newRefreshToken, nil
 }
 
 func (s *AuthService) Logout(refreshToken string) error {
-    return s.tokenService.RevokeRefreshToken(refreshToken)
+	return s.tokenService.RevokeRefreshToken(refreshToken)
 }
 
 // Добавляем метод для logout со всех устройств
 func (s *AuthService) LogoutAll(userID string) error {
-    // Отзываем все refresh токены
-    if err := s.tokenService.RevokeAllUserTokens(userID); err != nil {
-        return err
-    }
-    
-    // Инкрементируем версию токена чтобы отозвать все access токены
-    return s.db.Model(&models.User{}).
-        Where("id = ?", userID).
-        Update("token_version", gorm.Expr("token_version + 1")).Error
+	// Отзываем все refresh токены
+	if err := s.tokenService.RevokeAllUserTokens(userID); err != nil {
+		return err
+	}
+
+	// Инкрементируем версию токена чтобы отозвать все access токены
+	return s.db.Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("token_version", gorm.Expr("token_version + 1")).Error
 }
 
-
+// SetPrivateKeyEncryptedIfEmpty stores a client-encrypted private key backup for the user.
+// This enables decrypt capability on new devices without the server ever seeing the plaintext key.
+// For safety, this only writes when the backup is currently empty.
+func (s *AuthService) SetPrivateKeyEncryptedIfEmpty(userID, privateKeyEncrypted string) (updated bool, err error) {
+	if userID == "" || privateKeyEncrypted == "" {
+		return false, errors.New("missing inputs")
+	}
+	res := s.db.Model(&models.User{}).
+		Where("id = ? AND (private_key_encrypted = '' OR private_key_encrypted IS NULL)", userID).
+		Update("private_key_encrypted", privateKeyEncrypted)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
 
 // AuthMiddleware validates Bearer JWT and sets userId on the Gin context.
 func AuthMiddleware(s *AuthService) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        h := c.GetHeader("Authorization")
-        if h == "" {
-            c.AbortWithStatusJSON(401, gin.H{"error": "missing authorization header"})
-            return
-        }
-        const prefix = "Bearer "
-        if !strings.HasPrefix(h, prefix) {
-            c.AbortWithStatusJSON(401, gin.H{"error": "invalid authorization header"})
-            return
-        }
-        token := strings.TrimSpace(strings.TrimPrefix(h, prefix))
-        claims, err := s.ValidateToken(token)
-        if err != nil {
-            c.AbortWithStatusJSON(401, gin.H{"error": "invalid or expired token"})
-            return
-        }
-        c.Set("userId", claims.UserID)
-        c.Next()
-    }
+	return func(c *gin.Context) {
+		h := c.GetHeader("Authorization")
+		if h == "" {
+			c.AbortWithStatusJSON(401, gin.H{"error": "missing authorization header"})
+			return
+		}
+		const prefix = "Bearer "
+		if !strings.HasPrefix(h, prefix) {
+			c.AbortWithStatusJSON(401, gin.H{"error": "invalid authorization header"})
+			return
+		}
+		token := strings.TrimSpace(strings.TrimPrefix(h, prefix))
+		claims, err := s.ValidateToken(token)
+		if err != nil {
+			c.AbortWithStatusJSON(401, gin.H{"error": "invalid or expired token"})
+			return
+		}
+		c.Set("userId", claims.UserID)
+		c.Next()
+	}
 }
 
 func generateID() string {
-    bytes := make([]byte, 16)
-    rand.Read(bytes)
-    return base64.RawURLEncoding.EncodeToString(bytes)
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	return base64.RawURLEncoding.EncodeToString(bytes)
 }
 
 func splitHash(hash string) []string {
-    for i := 0; i < len(hash); i++ {
-        if hash[i] == ':' {
-            return []string{hash[:i], hash[i+1:]}
-        }
-    }
-    return nil
+	for i := 0; i < len(hash); i++ {
+		if hash[i] == ':' {
+			return []string{hash[:i], hash[i+1:]}
+		}
+	}
+	return nil
 }
 
 func compareHash(a, b []byte) bool {
-    if len(a) != len(b) {
-        return false
-    }
-    for i := range a {
-        if a[i] != b[i] {
-            return false
-        }
-    }
-    return true
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func getArgon2Config() Argon2Config {
-    // Получаем конфигурацию из env или используем безопасные значения по умолчанию
-    config := Argon2Config{
-        Time:    3,        // 3 итерации
-        Memory:  128 * 1024, // 128 MB
-        Threads: uint8(runtime.NumCPU()),
-        KeyLen:  32,
-    }
-    
-    // Позволяем переопределить через env для тестирования
-    if envTime := os.Getenv("ARGON2_TIME"); envTime != "" {
-        fmt.Sscanf(envTime, "%d", &config.Time)
-    }
-    if envMem := os.Getenv("ARGON2_MEMORY"); envMem != "" {
-        fmt.Sscanf(envMem, "%d", &config.Memory)
-    }
-    
-    return config
+	// Получаем конфигурацию из env или используем безопасные значения по умолчанию
+	config := Argon2Config{
+		Time:    3,          // 3 итерации
+		Memory:  128 * 1024, // 128 MB
+		Threads: uint8(runtime.NumCPU()),
+		KeyLen:  32,
+	}
+
+	// Позволяем переопределить через env для тестирования
+	if envTime := os.Getenv("ARGON2_TIME"); envTime != "" {
+		fmt.Sscanf(envTime, "%d", &config.Time)
+	}
+	if envMem := os.Getenv("ARGON2_MEMORY"); envMem != "" {
+		fmt.Sscanf(envMem, "%d", &config.Memory)
+	}
+
+	return config
 }
 
-func (s *AuthService) Register(username, email, password, publicKey string) (*models.User, error) {
-    // ... существующие проверки
-     var existingUser models.User
-	if err := s.db.Where("email = ?", email).First(&existingUser).Error; err == nil { // !!!!!!!!!!!!!!
-        return nil, errors.New("user already exists")
-    }
-    // Хеширование пароля с улучшенными параметрами Argon2
-    config := getArgon2Config()
-    salt := make([]byte, 16)
-    if _, err := rand.Read(salt); err != nil {
-        return nil, err
-    }
-    
-    hash := argon2.IDKey(
-        []byte(password), 
-        salt, 
-        config.Time,
-        config.Memory,
-        config.Threads,
-        config.KeyLen,
-    )
-    
-    // Сохраняем параметры вместе с хешем для возможности будущего обновления
-    passwordHash := fmt.Sprintf("%d:%d:%s:%s",
-        config.Time,
-        config.Memory,
-        base64.StdEncoding.EncodeToString(salt),
-        base64.StdEncoding.EncodeToString(hash),
-    )
-    
-    var disc string
+func (s *AuthService) Register(username, email, password, publicKey, privateKeyEncrypted string) (*models.User, error) {
+	// Check if user exists
+	var existingUser models.User
+	if err := s.db.Where("email = ?", email).First(&existingUser).Error; err == nil {
+		return nil, errors.New("user already exists")
+	}
+	// Хеширование пароля с улучшенными параметрами Argon2
+	config := getArgon2Config()
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+
+	hash := argon2.IDKey(
+		[]byte(password),
+		salt,
+		config.Time,
+		config.Memory,
+		config.Threads,
+		config.KeyLen,
+	)
+
+	// Сохраняем параметры вместе с хешем для возможности будущего обновления
+	passwordHash := fmt.Sprintf("%d:%d:%s:%s",
+		config.Time,
+		config.Memory,
+		base64.StdEncoding.EncodeToString(salt),
+		base64.StdEncoding.EncodeToString(hash),
+	)
+
+	var disc string
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		d, err := allocateDiscriminator(tx, username)
 		if err != nil {
@@ -526,120 +598,120 @@ func (s *AuthService) Register(username, email, password, publicKey string) (*mo
 	}
 
 	user := &models.User{
-        ID:                  generateID(),
-        Username:            username,
+		ID:                  generateID(),
+		Username:            username,
 		Discriminator:       disc,
-        Email:               email,
-        PasswordHash:        passwordHash,
-        PublicKey:           publicKey,
-        PrivateKeyEncrypted: "",
-        CreatedAt:           time.Now(),
-        UpdatedAt:           time.Now(),
-    }
-    
-    if err := s.db.Create(user).Error; err != nil {
-        return nil, err
-    }
-    
-    return user, nil
+		Email:               email,
+		PasswordHash:        passwordHash,
+		PublicKey:           publicKey,
+		PrivateKeyEncrypted: privateKeyEncrypted,
+		CreatedAt:           time.Now(),
+		UpdatedAt:           time.Now(),
+	}
+
+	if err := s.db.Create(user).Error; err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
 func (s *AuthService) Login(email, password string) (string, string, error) {
-    var user models.User
-    if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
-        return "", "", errors.New("invalid credentials")
-    }
-    
-    // Проверяем пароль с поддержкой старого формата
-    if !s.verifyPassword(password, user.PasswordHash) {
-        return "", "", errors.New("invalid credentials")
-    }
-    
-    // Проверяем, не нужно ли обновить хеш (если параметры устарели)
-    if s.needsPasswordRehash(user.PasswordHash) {
-        go s.rehashPasswordAsync(user.ID, password) // Асинхронно обновляем хеш
-    }
-    
-    // Генерируем токены
-    accessToken, err := s.generateToken(user.ID, 15*time.Minute, "access")
-    if err != nil {
-        return "", "", err
-    }
-    
-    refreshToken, err := s.generateToken(user.ID, 7*24*time.Hour, "refresh")
-    if err != nil {
-        return "", "", err
-    }
-    // Сохраняем refresh token в БД
-    if err := s.tokenService.SaveRefreshToken(user.ID, refreshToken, time.Now().Add(7*24*time.Hour)); err != nil {
-        return "", "", err
-    }
-    
-    // Обновляем статус пользователя
-    s.db.Model(&user).Updates(map[string]interface{}{
-        "online":    true,
-        "last_seen": time.Now(),
-    })
-    
-    return accessToken, refreshToken, nil
+	var user models.User
+	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
+		return "", "", errors.New("invalid credentials")
+	}
+
+	// Проверяем пароль с поддержкой старого формата
+	if !s.verifyPassword(password, user.PasswordHash) {
+		return "", "", errors.New("invalid credentials")
+	}
+
+	// Проверяем, не нужно ли обновить хеш (если параметры устарели)
+	if s.needsPasswordRehash(user.PasswordHash) {
+		go s.rehashPasswordAsync(user.ID, password) // Асинхронно обновляем хеш
+	}
+
+	// Генерируем токены
+	accessToken, err := s.generateToken(user.ID, 15*time.Minute, "access")
+	if err != nil {
+		return "", "", err
+	}
+
+	refreshToken, err := s.generateToken(user.ID, 7*24*time.Hour, "refresh")
+	if err != nil {
+		return "", "", err
+	}
+	// Сохраняем refresh token в БД
+	if err := s.tokenService.SaveRefreshToken(user.ID, refreshToken, time.Now().Add(7*24*time.Hour)); err != nil {
+		return "", "", err
+	}
+
+	// Обновляем статус пользователя
+	s.db.Model(&user).Updates(map[string]interface{}{
+		"online":    true,
+		"last_seen": time.Now(),
+	})
+
+	return accessToken, refreshToken, nil
 }
 
 func (s *AuthService) verifyPassword(password, storedHash string) bool {
-    // Поддержка нового формата: time:memory:salt:hash
-    parts := strings.Split(storedHash, ":")
-    if len(parts) == 4 {
-        // Новый формат
-        var time, memory uint32
-        fmt.Sscanf(parts[0], "%d", &time)
-        fmt.Sscanf(parts[1], "%d", &memory)
-        salt, _ := base64.StdEncoding.DecodeString(parts[2])
-        expectedHash, _ := base64.StdEncoding.DecodeString(parts[3])
-        
-        config := getArgon2Config()
-        hash := argon2.IDKey([]byte(password), salt, time, memory, config.Threads, uint32(len(expectedHash)))
-        return compareHash(hash, expectedHash)
-    }
-    
-    // Старый формат: salt:hash
-    if len(parts) == 2 {
-        salt, _ := base64.StdEncoding.DecodeString(parts[0])
-        expectedHash, _ := base64.StdEncoding.DecodeString(parts[1])
-        
-        // Используем старые параметры
-        hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
-        return compareHash(hash, expectedHash)
-    }
-    
-    return false
+	// Поддержка нового формата: time:memory:salt:hash
+	parts := strings.Split(storedHash, ":")
+	if len(parts) == 4 {
+		// Новый формат
+		var time, memory uint32
+		fmt.Sscanf(parts[0], "%d", &time)
+		fmt.Sscanf(parts[1], "%d", &memory)
+		salt, _ := base64.StdEncoding.DecodeString(parts[2])
+		expectedHash, _ := base64.StdEncoding.DecodeString(parts[3])
+
+		config := getArgon2Config()
+		hash := argon2.IDKey([]byte(password), salt, time, memory, config.Threads, uint32(len(expectedHash)))
+		return compareHash(hash, expectedHash)
+	}
+
+	// Старый формат: salt:hash
+	if len(parts) == 2 {
+		salt, _ := base64.StdEncoding.DecodeString(parts[0])
+		expectedHash, _ := base64.StdEncoding.DecodeString(parts[1])
+
+		// Используем старые параметры
+		hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
+		return compareHash(hash, expectedHash)
+	}
+
+	return false
 }
 
 func (s *AuthService) needsPasswordRehash(storedHash string) bool {
-    parts := strings.Split(storedHash, ":")
-    if len(parts) != 4 {
-        return true // Старый формат - нужно обновить
-    }
-    
-    var time, memory uint32
-    fmt.Sscanf(parts[0], "%d", &time)
-    fmt.Sscanf(parts[1], "%d", &memory)
-    
-    config := getArgon2Config()
-    return time != config.Time || memory != config.Memory
+	parts := strings.Split(storedHash, ":")
+	if len(parts) != 4 {
+		return true // Старый формат - нужно обновить
+	}
+
+	var time, memory uint32
+	fmt.Sscanf(parts[0], "%d", &time)
+	fmt.Sscanf(parts[1], "%d", &memory)
+
+	config := getArgon2Config()
+	return time != config.Time || memory != config.Memory
 }
 
 func (s *AuthService) rehashPasswordAsync(userID, password string) {
-    config := getArgon2Config()
-    salt := make([]byte, 16)
-    rand.Read(salt)
-    
-    hash := argon2.IDKey([]byte(password), salt, config.Time, config.Memory, config.Threads, config.KeyLen)
-    
-    newHash := fmt.Sprintf("%d:%d:%s:%s",
-        config.Time,
-        config.Memory,
-        base64.StdEncoding.EncodeToString(salt),
-        base64.StdEncoding.EncodeToString(hash),
-    )
-    
-    s.db.Model(&models.User{}).Where("id = ?", userID).Update("password_hash", newHash)
+	config := getArgon2Config()
+	salt := make([]byte, 16)
+	rand.Read(salt)
+
+	hash := argon2.IDKey([]byte(password), salt, config.Time, config.Memory, config.Threads, config.KeyLen)
+
+	newHash := fmt.Sprintf("%d:%d:%s:%s",
+		config.Time,
+		config.Memory,
+		base64.StdEncoding.EncodeToString(salt),
+		base64.StdEncoding.EncodeToString(hash),
+	)
+
+	s.db.Model(&models.User{}).Where("id = ?", userID).Update("password_hash", newHash)
 }

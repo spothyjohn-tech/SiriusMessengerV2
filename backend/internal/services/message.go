@@ -1,12 +1,20 @@
 package services
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"messenger/internal/crypto"
 	"messenger/internal/models"
@@ -14,6 +22,9 @@ import (
 
 // ErrNotParticipant is returned when a user is not in the conversation.
 var ErrNotParticipant = errors.New("not a conversation participant")
+
+// ErrBlocked is returned when the recipient has blocked the sender.
+var ErrBlocked = errors.New("blocked")
 
 type MessageService struct {
 	db     *gorm.DB
@@ -34,6 +45,24 @@ func (s *MessageService) SendMessage(senderID, conversationID, encryptedContent,
 	}
 	if !ok {
 		return nil, ErrNotParticipant
+	}
+
+	// Block enforcement: if ANY other participant has blocked sender, do not allow sending anything.
+	ids, err := s.ParticipantUserIDs(conversationID)
+	if err != nil {
+		return nil, err
+	}
+	for _, rid := range ids {
+		if rid == "" || rid == senderID {
+			continue
+		}
+		blocked, err := s.IsBlocked(rid, senderID) // recipient blocks sender
+		if err != nil {
+			return nil, err
+		}
+		if blocked {
+			return nil, ErrBlocked
+		}
 	}
 
 	if messageType == "" {
@@ -62,6 +91,128 @@ func (s *MessageService) SendMessage(senderID, conversationID, encryptedContent,
 		return message, nil
 	}
 	return &full, nil
+}
+
+// IsBlocked returns true when blockerID has blocked blockedID.
+func (s *MessageService) IsBlocked(blockerID, blockedID string) (bool, error) {
+	if blockerID == "" || blockedID == "" {
+		return false, nil
+	}
+	var cnt int64
+	err := s.db.Model(&models.UserBlock{}).
+		Where("blocker_id = ? AND blocked_id = ?", blockerID, blockedID).
+		Count(&cnt).Error
+	return cnt > 0, err
+}
+
+// SetBlocked creates/removes a block relation. Safe to call repeatedly.
+func (s *MessageService) SetBlocked(blockerID, blockedID string, blocked bool) error {
+	if blockerID == "" || blockedID == "" {
+		return errors.New("missing user id")
+	}
+	if blockerID == blockedID {
+		return errors.New("cannot block self")
+	}
+	if blocked {
+		return s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.UserBlock{
+			BlockerID: blockerID,
+			BlockedID: blockedID,
+			CreatedAt: time.Now(),
+		}).Error
+	}
+	return s.db.Where("blocker_id = ? AND blocked_id = ?", blockerID, blockedID).Delete(&models.UserBlock{}).Error
+}
+
+// StoreUploadedFile saves an encrypted file blob and metadata to the DB.
+// This is NOT E2EE; it is server-side encryption-at-rest + access control by conversation membership.
+func (s *MessageService) StoreUploadedFile(userID, conversationID, originalName, mime string, src io.Reader, size int64) (*models.UploadedFile, error) {
+	if conversationID == "" {
+		return nil, errors.New("missing conversation id")
+	}
+	ok, err := s.IsUserInConversation(userID, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotParticipant
+	}
+	if size <= 0 {
+		return nil, errors.New("empty file")
+	}
+	if size > 25*1024*1024 {
+		return nil, errors.New("file too large")
+	}
+	raw, err := io.ReadAll(src)
+	if err != nil {
+		return nil, errors.New("failed to read file")
+	}
+
+	key, err := getFileCipherKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, errors.New("failed to initialize cipher")
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, errors.New("failed to initialize cipher")
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, errors.New("failed to encrypt file")
+	}
+	ciphertext := gcm.Seal(nil, nonce, raw, nil)
+
+	fileID := uuid.NewString()
+	dir := os.Getenv("UPLOADS_DIR")
+	if strings.TrimSpace(dir) == "" {
+		dir = "./uploads"
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, errors.New("failed to store file")
+	}
+	storageName := fileID + ".bin"
+	storagePath := filepath.Join(dir, storageName)
+	if err := os.WriteFile(storagePath, ciphertext, 0o600); err != nil {
+		return nil, errors.New("failed to store file")
+	}
+	if strings.TrimSpace(mime) == "" {
+		mime = "application/octet-stream"
+	}
+
+	record := &models.UploadedFile{
+		ID:             fileID,
+		OwnerID:        userID,
+		ConversationID: conversationID,
+		OriginalName:   originalName,
+		MimeType:       mime,
+		SizeBytes:      size,
+		StoragePath:    storagePath,
+		Nonce:          base64.StdEncoding.EncodeToString(nonce),
+		CreatedAt:      time.Now(),
+	}
+	if err := s.db.Create(record).Error; err != nil {
+		return nil, errors.New("failed to save file metadata")
+	}
+	return record, nil
+}
+
+func getFileCipherKey() ([]byte, error) {
+	raw := strings.TrimSpace(os.Getenv("FILE_ENCRYPTION_KEY"))
+	if raw == "" {
+		return nil, errors.New("FILE_ENCRYPTION_KEY is not configured")
+	}
+	if b, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		if len(b) == 32 {
+			return b, nil
+		}
+	}
+	if len(raw) == 32 {
+		return []byte(raw), nil
+	}
+	return nil, errors.New("FILE_ENCRYPTION_KEY must be 32 bytes or base64-encoded 32 bytes")
 }
 
 func (s *MessageService) conversationClearedAt(userID, conversationID string) (*time.Time, error) {

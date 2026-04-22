@@ -12,6 +12,8 @@ import (
 // ConversationParticipantLookup resolves conversation members for targeted broadcast.
 type ConversationParticipantLookup interface {
 	ParticipantUserIDs(conversationID string) ([]string, error)
+	// IsBlocked returns true when blockerID has blocked blockedID.
+	IsBlocked(blockerID, blockedID string) (bool, error)
 }
 
 type Hub struct {
@@ -104,6 +106,13 @@ func (h *Hub) deliver(msg *Message) {
 		if !targetUsers[client.UserID] {
 			continue
 		}
+		// Security: if recipient has blocked sender, do not deliver anything from sender.
+		if h.lookup != nil && msg.SenderID != "" && client.UserID != msg.SenderID {
+			blocked, err := h.lookup.IsBlocked(client.UserID, msg.SenderID)
+			if err == nil && blocked {
+				continue
+			}
+		}
 		if msg.Type == "message" && client.UserID == msg.SenderID {
 			continue
 		}
@@ -189,6 +198,17 @@ func (c *Client) ReadPump() {
 			if calleeID == "" {
 				break
 			}
+			if c.Hub.lookup != nil {
+				if blocked, _ := c.Hub.lookup.IsBlocked(calleeID, c.UserID); blocked {
+					c.Hub.SendToUser(c.UserID, &Message{
+						Type:      "error",
+						SenderID:  "server",
+						Payload:   map[string]interface{}{"error": "error.blocked"},
+						Timestamp: time.Now(),
+					})
+					break
+				}
+			}
 
 			c.Hub.SendToUser(calleeID, &Message{
 				Type:      "call-offer",
@@ -204,6 +224,17 @@ func (c *Client) ReadPump() {
 				EncryptedAnswer interface{} `json:"encryptedAnswer"`
 			}
 			json.Unmarshal(wsMsg.Data, &answerData)
+			if answerData.CallerID != "" && c.Hub.lookup != nil {
+				if blocked, _ := c.Hub.lookup.IsBlocked(answerData.CallerID, c.UserID); blocked {
+					c.Hub.SendToUser(c.UserID, &Message{
+						Type:      "error",
+						SenderID:  "server",
+						Payload:   map[string]interface{}{"error": "error.blocked"},
+						Timestamp: time.Now(),
+					})
+					break
+				}
+			}
 
 			c.Hub.SendToUser(answerData.CallerID, &Message{
 				Type:      "call-answer",
@@ -219,6 +250,17 @@ func (c *Client) ReadPump() {
 				Candidate      interface{} `json:"candidate"`
 			}
 			json.Unmarshal(wsMsg.Data, &iceData)
+			if iceData.TargetID != "" && c.Hub.lookup != nil {
+				if blocked, _ := c.Hub.lookup.IsBlocked(iceData.TargetID, c.UserID); blocked {
+					c.Hub.SendToUser(c.UserID, &Message{
+						Type:      "error",
+						SenderID:  "server",
+						Payload:   map[string]interface{}{"error": "error.blocked"},
+						Timestamp: time.Now(),
+					})
+					break
+				}
+			}
 
 			c.Hub.SendToUser(iceData.TargetID, &Message{
 				Type:      "ice-candidate",
@@ -279,6 +321,17 @@ func (c *Client) ReadPump() {
 			json.Unmarshal(wsMsg.Data, &kick)
 			if kick.TargetID == "" {
 				break
+			}
+			if c.Hub.lookup != nil {
+				if blocked, _ := c.Hub.lookup.IsBlocked(kick.TargetID, c.UserID); blocked {
+					c.Hub.SendToUser(c.UserID, &Message{
+						Type:      "error",
+						SenderID:  "server",
+						Payload:   map[string]interface{}{"error": "error.blocked"},
+						Timestamp: time.Now(),
+					})
+					break
+				}
 			}
 			c.Hub.SendToUser(kick.TargetID, &Message{
 				Type:     "group-call-kick",
@@ -344,6 +397,17 @@ func (c *Client) ReadPump() {
 			if sig.TargetID == "" {
 				break
 			}
+			if c.Hub.lookup != nil {
+				if blocked, _ := c.Hub.lookup.IsBlocked(sig.TargetID, c.UserID); blocked {
+					c.Hub.SendToUser(c.UserID, &Message{
+						Type:      "error",
+						SenderID:  "server",
+						Payload:   map[string]interface{}{"error": "error.blocked"},
+						Timestamp: time.Now(),
+					})
+					break
+				}
+			}
 			c.Hub.SendToUser(sig.TargetID, &Message{
 				Type:     "call-signal",
 				SenderID: c.UserID,
@@ -352,6 +416,37 @@ func (c *Client) ReadPump() {
 					"targetId":       sig.TargetID,
 					"fromUserId":     c.UserID,
 					"payload":        sig.Payload,
+				},
+				Timestamp: time.Now(),
+			})
+		case "call-end":
+			var end struct {
+				ConversationID string `json:"conversationId"`
+				TargetID       string `json:"targetId"`
+				Reason         string `json:"reason"`
+			}
+			json.Unmarshal(wsMsg.Data, &end)
+			if end.TargetID == "" {
+				break
+			}
+			if c.Hub.lookup != nil {
+				if blocked, _ := c.Hub.lookup.IsBlocked(end.TargetID, c.UserID); blocked {
+					c.Hub.SendToUser(c.UserID, &Message{
+						Type:      "error",
+						SenderID:  "server",
+						Payload:   map[string]interface{}{"error": "error.blocked"},
+						Timestamp: time.Now(),
+					})
+					break
+				}
+			}
+			c.Hub.SendToUser(end.TargetID, &Message{
+				Type:     "call-end",
+				SenderID: c.UserID,
+				Payload: map[string]interface{}{
+					"conversationId": end.ConversationID,
+					"targetId":       end.TargetID,
+					"reason":         end.Reason,
 				},
 				Timestamp: time.Now(),
 			})

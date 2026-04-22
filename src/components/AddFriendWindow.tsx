@@ -4,6 +4,7 @@ import { IconSearch, IconX } from './icons';
 import { messageService } from '../services/message';
 import { AvatarBubble } from '../utils/avatar';
 import { t } from '../utils/i18n';
+import { userError } from '../utils/userError';
 
 interface AddFriendWindowProps {
   isOpen: boolean;
@@ -60,8 +61,7 @@ const AddFriendWindow: React.FC<AddFriendWindowProps> = ({
       setTab('requests');
       setQ('');
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { error?: string } } };
-      setErr(ax.response?.data?.error || t('friends.errSend'));
+      setErr(userError(e, 'friends.errSend'));
     } finally {
       setBusyId(null);
     }
@@ -79,7 +79,7 @@ const AddFriendWindow: React.FC<AddFriendWindowProps> = ({
           <h2 id="sf-add-friend-title" className="sf-modal-title">
             {t('friends.title')}
           </h2>
-          <button type="button" className="sf-modal-close" onClick={onClose} aria-label="Close">
+          <button type="button" className="sf-modal-close" onClick={onClose} aria-label={t('common.close')}>
             <IconX width={20} height={20} />
           </button>
         </div>

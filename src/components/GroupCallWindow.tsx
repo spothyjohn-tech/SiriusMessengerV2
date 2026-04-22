@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { websocketService } from '../services/websocket';
-import { t } from '../utils/i18n';
+import { fmt, membersLabel, t } from '../utils/i18n';
 import { IconPhoneHangup, IconMic, IconMicOff, IconScreenShare } from './icons';
 import { AvatarBubble } from '../utils/avatar';
 import { audioInputConstraints, applyAudioOutput, getStoredMicInputVolume } from '../utils/callMediaPrefs';
@@ -257,6 +257,7 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
         updateTiles();
       } catch (e) {
         console.error(e);
+        alert(t('call.micPermissionRequired'));
         onCloseRef.current();
       }
     };
@@ -589,6 +590,21 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
           }
         }
       });
+      // Renegotiate so peers remove the screen track on their side.
+      peersRef.current.forEach((st, remoteId) => {
+        void (async () => {
+          try {
+            const offer = await st.pc.createOffer();
+            await st.pc.setLocalDescription(offer);
+            websocketService.sendCallOffer(conversationId, remoteId, offer, false, {
+              groupCallId: callId,
+              memberIds: sortedMembers,
+            });
+          } catch {
+            /* ignore */
+          }
+        })();
+      });
       setIsScreenSharing(false);
       updateTiles();
       return;
@@ -607,6 +623,21 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
         } else {
           st.pc.addTrack(vt, screen);
         }
+      });
+      // Renegotiate so peers receive the new screen track.
+      peersRef.current.forEach((st, remoteId) => {
+        void (async () => {
+          try {
+            const offer = await st.pc.createOffer();
+            await st.pc.setLocalDescription(offer);
+            websocketService.sendCallOffer(conversationId, remoteId, offer, true, {
+              groupCallId: callId,
+              memberIds: sortedMembers,
+            });
+          } catch {
+            /* ignore */
+          }
+        })();
       });
       setIsScreenSharing(true);
       updateTiles();
@@ -676,7 +707,7 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
         )}
         <span className="gc-cell-name">{name}</span>
         {mutedMic ? (
-          <span className="gc-cell-mic-off" title="Mic off">
+          <span className="gc-cell-mic-off" title={t('call.mute')}>
             <IconMicOff width={14} height={14} />
           </span>
         ) : null}
@@ -729,7 +760,7 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
           onClick={toggleFocusScreen}
         >
           <GcVideo stream={screenDisplayStream} muted className="gc-strip-video" />
-          <span>Screen</span>
+          <span>{t('call.screen')}</span>
         </button>
       );
     }
@@ -752,10 +783,10 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
   return (
     <div className={`call-window group-call-window ${screenExpanded ? 'group-call-window--expanded' : ''}`}>
       <div className="call-window-top">
-        <span className="call-window-name">Group call · {formatDuration(duration)}</span>
+        <span className="call-window-name">{fmt('call.groupTitle', { duration: formatDuration(duration) })}</span>
         <span className="call-window-status">
-          {connectedIds.size} in voice · {sortedMembers.length} members
-          {overflowCount > 0 ? ` · showing ${visibleMembers.length} of ${sortedMembers.length}` : ''}
+          {fmt('call.inVoice', { count: connectedIds.size, members: membersLabel(sortedMembers.length) })}
+          {overflowCount > 0 ? fmt('call.showing', { shown: visibleMembers.length, members: sortedMembers.length }) : ''}
         </span>
       </div>
 
@@ -797,8 +828,8 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
             <button
               type="button"
               className="group-call-expand-btn"
-              title="Full screen"
-              aria-label="Full screen demonstration"
+              title={t('call.fullScreen')}
+              aria-label={t('call.fullScreen')}
               onClick={() => setScreenExpanded((e) => !e)}
             >
               <span aria-hidden>⛶</span>
@@ -839,7 +870,13 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
         )}
 
       <div className="call-controls">
-        <button type="button" onClick={toggleMute} className={isMuted ? 'active' : ''} title="Mute" aria-label="Mute">
+        <button
+          type="button"
+          onClick={toggleMute}
+          className={isMuted ? 'active' : ''}
+          title={t('call.mute')}
+          aria-label={t('call.mute')}
+        >
           <span className="call-ctrl-icon">
             {isMuted ? <IconMicOff width={22} height={22} /> : <IconMic width={22} height={22} />}
           </span>
@@ -848,14 +885,14 @@ const GroupCallWindow: React.FC<GroupCallWindowProps> = ({
           type="button"
           onClick={() => void toggleScreen()}
           className={isScreenSharing ? 'active' : ''}
-          title="Share screen"
-          aria-label="Share screen"
+          title={t('call.shareScreen')}
+          aria-label={t('call.shareScreen')}
         >
           <span className="call-ctrl-icon">
             <IconScreenShare width={22} height={22} />
           </span>
         </button>
-        <button type="button" onClick={endAll} className="end-call" title="Leave call" aria-label="Leave call">
+        <button type="button" onClick={endAll} className="end-call" title={t('call.leave')} aria-label={t('call.leave')}>
           <IconPhoneHangup width={22} height={22} />
         </button>
       </div>

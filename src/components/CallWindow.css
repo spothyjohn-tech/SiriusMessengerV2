@@ -199,6 +199,7 @@
 
 .call-controls svg {
   stroke: currentColor;
+  display: block;
 }
 
 .call-info {

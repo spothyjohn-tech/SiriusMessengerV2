@@ -3,6 +3,8 @@ import { Conversation, User } from '../types';
 import { messageService } from '../services/message';
 import { readImageAsDataUrl, AvatarBubble } from '../utils/avatar';
 import { IconX } from './icons';
+import { t } from '../utils/i18n';
+import { userError } from '../utils/userError';
 
 interface GroupChatSettingsWindowProps {
   isOpen: boolean;
@@ -45,19 +47,18 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
 
   if (!isOpen) return null;
 
-  const title = conversation.name || 'Group';
+  const title = conversation.name || t('groupSettings.title');
 
   const saveName = async () => {
     setBusy(true);
     setErr(null);
     try {
       const conv = await messageService.updateGroupConversation(conversation.id, {
-        name: name.trim() || 'Group',
+        name: name.trim() || t('groupSettings.title'),
       });
       onUpdated(conv);
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { error?: string } } };
-      setErr(ax.response?.data?.error || 'Could not update');
+      setErr(userError(e, 'groupSettings.errUpdate'));
     } finally {
       setBusy(false);
     }
@@ -74,9 +75,7 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
       const conv = await messageService.updateGroupConversation(conversation.id, { avatar: dataUrl });
       onUpdated(conv);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Could not set avatar';
-      const ax = e as { response?: { data?: { error?: string } } };
-      setErr(ax.response?.data?.error || msg);
+      setErr(userError(e, 'groupSettings.errSetAvatar'));
     } finally {
       setBusy(false);
     }
@@ -89,8 +88,7 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
       const conv = await messageService.updateGroupConversation(conversation.id, { avatar: '' });
       onUpdated(conv);
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { error?: string } } };
-      setErr(ax.response?.data?.error || 'Could not remove avatar');
+      setErr(userError(e, 'groupSettings.errRemoveAvatar'));
     } finally {
       setBusy(false);
     }
@@ -98,9 +96,7 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
 
   const kickOrLeave = async (userId: string) => {
     const self = userId === currentUser.id;
-    const msg = self
-      ? 'Leave this group? You can be re-added by a member.'
-      : 'Remove this member from the group?';
+    const msg = self ? t('groupSettings.confirmLeave') : t('groupSettings.confirmRemoveMember');
     if (!window.confirm(msg)) return;
     setBusy(true);
     setErr(null);
@@ -115,8 +111,7 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
       const next = list.find((c) => c.id === conversation.id);
       if (next) onUpdated(next);
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { error?: string } } };
-      setErr(ax.response?.data?.error || 'Could not update members');
+      setErr(userError(e, 'groupSettings.errUpdateMembers'));
     } finally {
       setBusy(false);
     }
@@ -131,8 +126,7 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
       onUpdated(conv);
       setAddOpen(false);
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { error?: string } } };
-      setErr(ax.response?.data?.error || 'Could not add members');
+      setErr(userError(e, 'groupSettings.errAddMembers'));
     } finally {
       setBusy(false);
     }
@@ -148,9 +142,9 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
       >
         <div className="sf-modal-head">
           <h2 id="sf-group-settings-title" className="sf-modal-title">
-            Group chat
+            {t('groupSettings.title')}
           </h2>
-          <button type="button" className="sf-modal-close" onClick={onClose} aria-label="Close">
+          <button type="button" className="sf-modal-close" onClick={onClose} aria-label={t('common.close')}>
             <IconX width={20} height={20} />
           </button>
         </div>
@@ -158,17 +152,17 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
           {err ? <p className="sf-settings-error">{err}</p> : null}
 
           <section className="sf-settings-section">
-            <h3 className="sf-settings-section-title">Photo</h3>
+            <h3 className="sf-settings-section-title">{t('common.photo')}</h3>
             <div className="sf-settings-account">
               <AvatarBubble label={title} avatarUrl={conversation.avatar} className="sf-avatar--lg" />
               <div className="sf-group-avatar-actions">
                 <label className="sf-btn sf-btn--primary-sm sf-file-label">
-                  Change photo
+                  {t('common.changePhoto')}
                   <input type="file" accept="image/*" className="sf-file-input" onChange={(e) => void onPickAvatar(e)} disabled={busy} />
                 </label>
                 {conversation.avatar ? (
                   <button type="button" className="sf-btn sf-btn--ghost" onClick={() => void clearAvatar()} disabled={busy}>
-                    Remove
+                    {t('common.remove')}
                   </button>
                 ) : null}
               </div>
@@ -176,27 +170,29 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
           </section>
 
           <section className="sf-settings-section">
-            <h3 className="sf-settings-section-title">Name</h3>
+            <h3 className="sf-settings-section-title">{t('common.name')}</h3>
             <div className="sf-settings-field-row">
               <input
                 type="text"
                 className="sf-settings-input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Group name"
+                placeholder={t('groupSettings.groupNamePlaceholder')}
                 maxLength={120}
               />
               <button type="button" className="sf-btn sf-btn--primary-sm" onClick={() => void saveName()} disabled={busy}>
-                Save
+                {t('common.save')}
               </button>
             </div>
           </section>
 
           <section className="sf-settings-section">
             <div className="sf-group-members-head">
-              <h3 className="sf-settings-section-title">Members ({conversation.participants.length})</h3>
+              <h3 className="sf-settings-section-title">
+                {t('common.members')} ({conversation.participants.length})
+              </h3>
               <button type="button" className="sf-btn sf-btn--primary-sm sf-btn--small" onClick={() => setAddOpen(true)} disabled={busy || addableUsers.length === 0}>
-                Add people
+                {t('common.addPeople')}
               </button>
             </div>
             <ul className="sf-group-member-list">
@@ -205,7 +201,7 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
                   <AvatarBubble label={p.username} avatarUrl={p.avatar} className="sf-avatar--sm" online={p.online} />
                   <span className="sf-group-member-name">
                     {p.username}
-                    {p.id === currentUser.id ? ' (you)' : ''}
+                    {p.id === currentUser.id ? t('groupSettings.youSuffix') : ''}
                   </span>
                   <button
                     type="button"
@@ -213,7 +209,7 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
                     onClick={() => void kickOrLeave(p.id)}
                     disabled={busy}
                   >
-                    {p.id === currentUser.id ? 'Leave' : 'Remove'}
+                    {p.id === currentUser.id ? t('groupSettings.leave') : t('groupSettings.remove')}
                   </button>
                 </li>
               ))}
@@ -231,16 +227,21 @@ const GroupChatSettingsWindow: React.FC<GroupChatSettingsWindowProps> = ({
             setAddOpen(false);
           }}
         >
-          <div className="sf-modal sf-modal--lg" role="dialog" aria-label="Add people" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="sf-modal sf-modal--lg"
+            role="dialog"
+            aria-label={t('groupSettings.addPeopleAria')}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="sf-modal-head">
-              <h2 className="sf-modal-title">Add to group</h2>
-              <button type="button" className="sf-modal-close" onClick={() => setAddOpen(false)} aria-label="Close">
+              <h2 className="sf-modal-title">{t('groupSettings.addToGroupTitle')}</h2>
+              <button type="button" className="sf-modal-close" onClick={() => setAddOpen(false)} aria-label={t('common.close')}>
                 <IconX width={20} height={20} />
               </button>
             </div>
             <div className="sf-modal-body">
               {addableUsers.length === 0 ? (
-                <p className="sf-settings-hint">No one else to add.</p>
+                <p className="sf-settings-hint">{t('common.noOneToAdd')}</p>
               ) : (
                 <ul className="sf-modal-list">
                   {addableUsers.map((u) => (

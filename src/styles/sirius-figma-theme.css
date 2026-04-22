@@ -243,47 +243,6 @@
   text-underline-offset: 2px;
 }
 
-.sf-auth-lang-switch {
-  position: absolute;
-  top: 1rem;
-  right: 1.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  z-index: 10;
-}
-
-.sf-auth-lang-btn {
-  background: transparent;
-  border: none;
-  color: var(--sf-zinc-500);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  padding: 0.25rem 0.5rem;
-  cursor: pointer;
-  transition: color 0.15s ease;
-  text-transform: uppercase;
-}
-
-.sf-auth-lang-btn:hover {
-  color: var(--sf-zinc-300);
-}
-
-.sf-auth-lang-btn--active {
-  color: var(--sf-accent, #8b5cf6);
-}
-
-.sf-auth-lang-btn--active:hover {
-  color: var(--sf-accent, #8b5cf6);
-}
-
-.sf-auth-lang-sep {
-  color: var(--sf-zinc-600);
-  font-size: 0.75rem;
-  user-select: none;
-}
-
 /* ——— App shell ——— */
 .sf-app {
   display: flex;
@@ -1189,6 +1148,7 @@
 .sf-modal-body {
   padding: 1.25rem;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .sf-modal-search {
@@ -1274,12 +1234,13 @@
   padding-left: 1rem;
 }
 
-.sf-group-member-list {
+.sf-group-check-list {
   list-style: none;
   margin: 0 0 1rem;
   padding: 0;
   max-height: 200px;
   overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--sf-zinc-800);
   border-radius: var(--sf-radius);
 }
@@ -1293,10 +1254,20 @@
   font-size: 0.875rem;
   color: var(--sf-white);
   border-bottom: 1px solid var(--sf-zinc-900);
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .sf-group-check-row:last-child {
   border-bottom: none;
+}
+
+.sf-group-check-row > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sf-settings-body {
@@ -1648,6 +1619,10 @@
   border: none;
   border-radius: var(--sf-radius);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 .sf-incoming-accept {
@@ -2374,4 +2349,161 @@
 
 [data-sirius-theme='light'] .call-window-status {
   color: var(--call-muted, #a1a1aa);
+}
+
+/* Language switcher - inline in header */
+.sf-auth-lang-wrapper {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.sf-auth-lang-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--sf-zinc-800);
+  border-radius: 1.5rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sf-zinc-400);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.sf-auth-lang-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--sf-zinc-600);
+  color: var(--sf-white);
+}
+
+.sf-auth-lang-flag {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sf-auth-lang-chevron {
+  font-size: 0.5rem;
+  margin-left: 0.125rem;
+  transition: transform 0.2s ease;
+  opacity: 0.5;
+}
+
+.sf-auth-lang-chevron--open {
+  transform: rotate(180deg);
+}
+
+.sf-auth-lang-dropdown {
+  position: absolute;
+  top: calc(100% + 0.375rem);
+  right: 0;
+  min-width: 150px;
+  padding: 0.25rem;
+  background: var(--sf-zinc-950);
+  border: 1px solid var(--sf-zinc-800);
+  border-radius: 0.75rem;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: sf-lang-dropdown-appear 0.15s ease;
+  z-index: 100;
+}
+
+@keyframes sf-lang-dropdown-appear {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sf-auth-lang-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--sf-zinc-300);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.1s ease;
+}
+
+.sf-auth-lang-option:hover {
+  background: var(--sf-zinc-900);
+  color: var(--sf-white);
+}
+
+.sf-auth-lang-option--active {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sf-white);
+}
+
+.sf-auth-lang-option-flag {
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.sf-auth-lang-check {
+  margin-left: auto;
+  color: var(--sf-green);
+  font-size: 0.75rem;
+}
+
+/* Adjust auth head to accommodate inline lang switcher */
+.sf-auth-head {
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--sf-zinc-800);
+  text-align: center;
+}
+
+.sf-auth-head-text {
+  text-align: center;
+}
+
+/* Light theme adjustments */
+[data-sirius-theme='light'] .sf-auth-lang-btn {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: #d4d4d8;
+  color: #52525b;
+}
+
+[data-sirius-theme='light'] .sf-auth-lang-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: #a1a1aa;
+  color: #18181b;
+}
+
+[data-sirius-theme='light'] .sf-auth-lang-dropdown {
+  background: #fafafa;
+  border-color: #d4d4d8;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12), 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+
+[data-sirius-theme='light'] .sf-auth-lang-option {
+  color: #3f3f46;
+}
+
+[data-sirius-theme='light'] .sf-auth-lang-option:hover {
+  background: #e4e4e7;
+  color: #18181b;
+}
+
+[data-sirius-theme='light'] .sf-auth-lang-option--active {
+  background: #e4e4e7;
+  color: #18181b;
 }

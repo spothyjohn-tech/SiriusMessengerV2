@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"log"
 	"os"
 	"os/signal"
@@ -11,18 +12,25 @@ import (
 	"messenger/internal/auth"
 	appcrypto "messenger/internal/crypto"
 	"messenger/internal/handlers"
+	"messenger/internal/middleware"
 	"messenger/internal/models"
 	"messenger/internal/services"
 	"messenger/internal/websocket"
-	"messenger/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Ошибка загрузки .env файла")
+	}
+	jwtSecret := []byte(os.Getenv("MESSENGER_JWT_SECRET"))
+	validateFileEncryptionConfig()
 	// Initialize database
 	db := initDB()
 
@@ -37,13 +45,15 @@ func main() {
 		&models.FriendRequest{},
 		&models.Friendship{},
 		&models.RefreshToken{}, // Добавляем миграцию для RefreshToken
+		&models.UploadedFile{},
+		&models.UserBlock{},
 	)
 	normalizeUserIndexes(db)
 
 	// Initialize services
-	tokenService := services.NewTokenService(db) // Сначала создаем tokenService
-	authService := auth.NewAuthService(db, tokenService) // Затем передаем его в authService
-	
+	tokenService := services.NewTokenService(db)                    // Сначала создаем tokenService
+	authService := auth.NewAuthService(db, tokenService, jwtSecret) // Затем передаем его в authService
+
 	// Запускаем фоновую очистку токенов
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
@@ -58,7 +68,7 @@ func main() {
 	if err := authService.BackfillDiscriminators(); err != nil {
 		log.Println("Failed to backfill discriminators:", err)
 	}
-	
+
 	cryptoService := appcrypto.NewE2EEService()
 	messageService := services.NewMessageService(db, cryptoService)
 	wsHub := websocket.NewHub(messageService, cryptoService)
@@ -68,7 +78,7 @@ func main() {
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
-	messageHandler := handlers.NewMessageHandler(messageService, wsHub)
+	messageHandler := handlers.NewMessageHandler(messageService, wsHub, db)
 	wsHandler := handlers.NewWebSocketHandler(wsHub, authService)
 
 	// Setup router
@@ -91,9 +101,12 @@ func main() {
 	{
 		protected.POST("/auth/logout", authHandler.Logout)
 		protected.POST("/auth/logout-all", authHandler.LogoutAll)
+		protected.PUT("/auth/private-key-backup", authHandler.UpsertPrivateKeyBackup)
 		protected.POST("/auth/change-password", authHandler.ChangePassword)
-		
+
 		protected.GET("/users", messageHandler.GetUsers)
+		protected.POST("/users/:userId/block", messageHandler.BlockUser)
+		protected.DELETE("/users/:userId/block", messageHandler.UnblockUser)
 		protected.GET("/friends", messageHandler.GetFriends)
 		protected.DELETE("/friends/:userId", messageHandler.RemoveFriend)
 		protected.GET("/friend-requests", messageHandler.GetFriendRequests)
@@ -110,6 +123,9 @@ func main() {
 		protected.DELETE("/conversations/:conversationId/participants/:userId", messageHandler.RemoveConversationParticipant)
 		protected.GET("/messages/:conversationId", messageHandler.GetMessages)
 		protected.POST("/messages", messageHandler.SendMessage)
+		protected.POST("/messages/upload", messageHandler.UploadMessageFile)
+		protected.POST("/files", messageHandler.UploadFile)
+		protected.GET("/files/:fileId", messageHandler.DownloadFile)
 		protected.PATCH("/conversations/:conversationId/messages/:messageId", messageHandler.UpdateMessage)
 		protected.DELETE("/conversations/:conversationId/messages/:messageId", messageHandler.DeleteMessage)
 		protected.POST("/groups", messageHandler.CreateGroup)
@@ -229,4 +245,20 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func validateFileEncryptionConfig() {
+	raw := strings.TrimSpace(os.Getenv("FILE_ENCRYPTION_KEY"))
+	if raw == "" {
+		log.Fatal("FILE_ENCRYPTION_KEY is required (32-byte string or base64-encoded 32 bytes)")
+	}
+	if b, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		if len(b) == 32 {
+			return
+		}
+	}
+	if len(raw) == 32 {
+		return
+	}
+	log.Fatal("FILE_ENCRYPTION_KEY must be exactly 32 bytes (plain) or base64 of 32 bytes")
 }

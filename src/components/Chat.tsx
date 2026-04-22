@@ -19,6 +19,7 @@ import { t, membersLabel } from '../utils/i18n';
 import { AvatarBubble } from '../utils/avatar';
 import { savePlainToCache, plainCacheForOwnMessages } from '../utils/messagePlainCache';
 import ConfirmDialog from './ConfirmDialog';
+import { userError } from '../utils/userError';
 import {
   filterMessagesAfterClear,
   mergeServerClearedAt,
@@ -77,11 +78,18 @@ interface ChatProps {
 
 function displayTitle(c: Conversation, self: User): string {
   const others = c.participants.filter((p) => p.id !== self.id);
-  return c.name || others.map((p) => p.username).join(', ') || 'Conversation';
+  return c.name || others.map((p) => p.username).join(', ') || t('app.chatFallbackTitle');
 }
 
 function convTitleForForward(c: Conversation, self: User): string {
   return displayTitle(c, self);
+}
+
+function isActuallyOnline(user?: User): boolean {
+  if (!user?.online) return false;
+  const last = new Date(user.lastSeen || 0).getTime();
+  if (!Number.isFinite(last) || last <= 0) return false;
+  return Date.now() - last < 90 * 1000;
 }
 
 const Chat: React.FC<ChatProps> = ({
@@ -103,6 +111,7 @@ const Chat: React.FC<ChatProps> = ({
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const loadingOlderRef = useRef(false);
   const nextOlderOffsetRef = useRef(0);
   const [sentPlaintext, setSentPlaintext] = useState<Record<string, string>>({});
@@ -137,7 +146,7 @@ const Chat: React.FC<ChatProps> = ({
   const canE2EEDM = !conversation.isGroup && others.length === 1;
   const canSendMessage = (canE2EEDM || conversation.isGroup) && !peerLocked;
   const title = displayTitle(conversation, currentUser);
-  const peerOnline = others.length === 1 ? others[0].online : false;
+  const peerOnline = others.length === 1 ? isActuallyOnline(others[0]) : false;
   const canCall = others.length >= 1;
   const headerAvatarUrl = conversation.isGroup
     ? conversation.avatar
@@ -146,13 +155,13 @@ const Chat: React.FC<ChatProps> = ({
       : undefined;
   const subtitle = conversation.isGroup
     ? typingUsers.size > 0
-      ? 'Typing…'
+      ? t('chat.typing')
       : membersLabel(conversation.participants.length)
     : typingUsers.size > 0
-      ? 'Typing…'
+      ? t('chat.typing')
       : peerOnline
-        ? 'Online'
-        : 'Offline';
+        ? t('app.profile.online')
+        : t('app.profile.offline');
 
   const onPlaintext = useCallback((id: string, text: string) => {
     setTextById((prev) => (prev[id] === text ? prev : { ...prev, [id]: text }));
@@ -214,6 +223,7 @@ const Chat: React.FC<ChatProps> = ({
     if (loadingOlderRef.current || !hasMore) return;
     loadingOlderRef.current = true;
     setLoading(true);
+    setLoadErr(null);
     try {
       const off = nextOlderOffsetRef.current;
       const batch = await messageService.getMessages(conversation.id, 50, off);
@@ -225,7 +235,7 @@ const Chat: React.FC<ChatProps> = ({
       setSentPlaintext((prev) => ({ ...olderCache, ...prev }));
       setMessages((prev) => [...filtered, ...prev]);
     } catch (error) {
-      console.error('Failed to load messages:', error);
+      setLoadErr(userError(error, 'error.network'));
     } finally {
       setLoading(false);
       loadingOlderRef.current = false;
@@ -244,6 +254,7 @@ const Chat: React.FC<ChatProps> = ({
     setSentPlaintext({});
     setFullPlainById({});
     setTextById({});
+    setLoadErr(null);
     nextOlderOffsetRef.current = 0;
     setSearchOpen(false);
     setSearchQuery('');
@@ -265,7 +276,7 @@ const Chat: React.FC<ChatProps> = ({
         nextOlderOffsetRef.current = batch.length;
         if (batch.length < 50) setHasMore(false);
       })
-      .catch(console.error)
+      .catch((e) => setLoadErr(userError(e, 'error.network')))
       .finally(() => setLoading(false));
   }, [conversation.id, currentUser.id]);
 
@@ -466,25 +477,82 @@ const Chat: React.FC<ChatProps> = ({
 
   const handleSendFile = async (file: File) => {
     if (!canSendMessage) return;
-    const b64 = arrayBufferToBase64(await file.arrayBuffer());
-    const json = JSON.stringify({
+    const tempId = `local-file-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const mime = file.type || 'application/octet-stream';
+    const optimistic = JSON.stringify({
       _sirius: 'file',
       name: file.name,
-      mime: file.type || 'application/octet-stream',
-      b64,
+      mime,
+      size: file.size,
+      uploading: true,
+      progress: 0,
     });
-    const enc = await encryptPlainString(json);
-    const senderKey = 'encryptedKey' in enc ? enc.encryptedKey : enc.senderKey;
-    const message = await messageService.sendMessage(
-      conversation.id,
-      enc.encryptedContent,
-      enc.iv,
-      senderKey,
-      'file'
-    );
-    setSentPlaintext((prev) => ({ ...prev, [message.id]: json }));
-    savePlainToCache(message.id, json);
-    setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
+    const placeholder: Message = {
+      id: tempId,
+      conversationId: conversation.id,
+      senderId: currentUser.id,
+      encryptedContent: '',
+      iv: '',
+      senderKey: '',
+      messageType: 'file',
+      createdAt: new Date().toISOString(),
+      sender: currentUser as any,
+    };
+    setSentPlaintext((prev) => ({ ...prev, [tempId]: optimistic }));
+    setMessages((prev) => [...prev, placeholder]);
+
+    try {
+      const uploaded = await messageService.uploadFile(file, conversation.id, (p) => {
+        const next = JSON.stringify({
+          _sirius: 'file',
+          name: file.name,
+          mime,
+          size: file.size,
+          uploading: true,
+          progress: p,
+        });
+        setSentPlaintext((prev) => (prev[tempId] === next ? prev : { ...prev, [tempId]: next }));
+      });
+
+      const json = JSON.stringify({
+        _sirius: 'file',
+        name: uploaded.name || file.name,
+        mime: uploaded.mime || mime,
+        size: uploaded.size || file.size,
+        fileId: uploaded.id,
+        url: uploaded.fileLink,
+      });
+      const enc = await encryptPlainString(json);
+      const senderKey = 'encryptedKey' in enc ? enc.encryptedKey : enc.senderKey;
+      const message = await messageService.sendMessage(
+        conversation.id,
+        enc.encryptedContent,
+        enc.iv,
+        senderKey,
+        'file'
+      );
+      setSentPlaintext((prev) => {
+        const next = { ...prev };
+        delete next[tempId];
+        next[message.id] = json;
+        return next;
+      });
+      savePlainToCache(message.id, json);
+      setMessages((prev) => {
+        const filtered = prev.filter((m) => m.id !== tempId);
+        return filtered.some((m) => m.id === message.id) ? filtered : [...filtered, message];
+      });
+    } catch {
+      const failed = JSON.stringify({
+        _sirius: 'file',
+        name: file.name,
+        mime,
+        size: file.size,
+        uploading: false,
+        failed: true,
+      });
+      setSentPlaintext((prev) => ({ ...prev, [tempId]: failed }));
+    }
   };
 
   const handleSendSticker = async (char: string) => {
@@ -613,7 +681,7 @@ const Chat: React.FC<ChatProps> = ({
     try {
       await navigator.clipboard.writeText(copySummaryFromPayload(parseDecryptedPayload(ctxMenu.plain)));
     } catch {
-      alert('Could not copy to clipboard.');
+      alert(t('msg.copyFail'));
     }
     closeCtxMenu();
   };
@@ -695,7 +763,7 @@ const Chat: React.FC<ChatProps> = ({
       });
     } catch (err) {
       console.error(err);
-      alert('Could not delete message.');
+      alert(t('msg.deleteFail'));
     }
   };
 
@@ -710,7 +778,7 @@ const Chat: React.FC<ChatProps> = ({
     if (!originalPlain || originalPlain.startsWith('Sent message (')) {
       const d = await resolvePlainForOps(editing.id);
       if (!d) {
-        alert('Could not load original message text.');
+        alert(t('msg.loadOriginalFail'));
         setEditing(null);
         return;
       }
@@ -718,7 +786,7 @@ const Chat: React.FC<ChatProps> = ({
     }
     const newPayload = buildTextPayloadFromEdit(originalPlain, editing.draft.trim());
     if (!newPayload.trim()) {
-      alert('Message cannot be empty.');
+      alert(t('msg.emptyNotAllowed'));
       return;
     }
     try {
@@ -747,7 +815,7 @@ const Chat: React.FC<ChatProps> = ({
       setEditing(null);
     } catch (err) {
       console.error(err);
-      alert('Could not save edit.');
+      alert(t('msg.saveEditFail'));
     }
   };
 
@@ -755,7 +823,7 @@ const Chat: React.FC<ChatProps> = ({
     if (!forwardMessageId) return;
     const plain = await resolvePlainForOps(forwardMessageId);
     if (!plain) {
-      alert('Message is not available to forward yet. Try again in a moment.');
+      alert(t('msg.forwardNotReady'));
       return;
     }
     const src = messages.find((m) => m.id === forwardMessageId);
@@ -780,7 +848,7 @@ const Chat: React.FC<ChatProps> = ({
       setForwardMessageId(null);
     } catch (err) {
       console.error(err);
-      alert('Could not forward message.');
+      alert(t('msg.forwardFail'));
     }
   };
 
@@ -800,32 +868,32 @@ const Chat: React.FC<ChatProps> = ({
       >
         {showDownloadCtx ? (
           <button type="button" className="sf-msg-ctx-item" role="menuitem" onClick={handleCtxDownload}>
-            Download
+            {t('msg.download')}
           </button>
         ) : null}
         {ctxMenu?.isOwn && canEditCtx ? (
           <button type="button" className="sf-msg-ctx-item" role="menuitem" onClick={handleCtxEdit}>
-            Edit
+            {t('msg.edit')}
           </button>
         ) : null}
         {ctxMenu?.isOwn ? (
           <button type="button" className="sf-msg-ctx-item" role="menuitem" onClick={() => void handleCtxCopy()}>
-            Copy
+            {t('msg.copy')}
           </button>
         ) : null}
         {ctxMenu?.isOwn ? (
           <button type="button" className="sf-msg-ctx-item" role="menuitem" onClick={handleCtxForward}>
-            Forward
+            {t('msg.forward')}
           </button>
         ) : null}
         {ctxMenu?.isOwn ? (
           <button type="button" className="sf-msg-ctx-item" role="menuitem" onClick={handleCtxReply}>
-            Reply
+            {t('msg.reply')}
           </button>
         ) : null}
         {ctxMenu?.isOwn ? (
           <button type="button" className="sf-msg-ctx-item sf-msg-ctx-item--danger" role="menuitem" onClick={() => void handleCtxDelete()}>
-            Delete
+            {t('common.remove')}
           </button>
         ) : null}
       </div>,
@@ -840,8 +908,13 @@ const Chat: React.FC<ChatProps> = ({
         role="presentation"
         onClick={() => setForwardMessageId(null)}
       >
-        <div className="sf-forward-modal" role="dialog" aria-label="Forward message" onClick={(e) => e.stopPropagation()}>
-          <h3>Forward to…</h3>
+        <div
+          className="sf-forward-modal"
+          role="dialog"
+          aria-label={t('msg.forwardDialogAria')}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3>{t('msg.forwardTo')}</h3>
           <ul className="sf-forward-list">
             {forwardTargets.map((c) => (
               <li key={c.id}>
@@ -857,10 +930,15 @@ const Chat: React.FC<ChatProps> = ({
             ))}
           </ul>
           {forwardTargets.length === 0 ? (
-            <p style={{ color: 'var(--sf-zinc-500)', fontSize: '0.875rem' }}>No other chats.</p>
+            <p style={{ color: 'var(--sf-zinc-500)', fontSize: '0.875rem' }}>{t('msg.noOtherChats')}</p>
           ) : null}
-          <button type="button" className="sf-btn sf-btn--ghost sf-btn--small" style={{ marginTop: '0.75rem' }} onClick={() => setForwardMessageId(null)}>
-            Cancel
+          <button
+            type="button"
+            className="sf-btn sf-btn--ghost sf-btn--small"
+            style={{ marginTop: '0.75rem' }}
+            onClick={() => setForwardMessageId(null)}
+          >
+            {t('common.cancel')}
           </button>
         </div>
       </div>,
@@ -871,8 +949,13 @@ const Chat: React.FC<ChatProps> = ({
     editing &&
     createPortal(
       <div className="sf-edit-msg-overlay" role="presentation" onClick={() => setEditing(null)}>
-        <div className="sf-edit-msg-modal" role="dialog" aria-label="Edit message" onClick={(e) => e.stopPropagation()}>
-          <h3>Edit message</h3>
+        <div
+          className="sf-edit-msg-modal"
+          role="dialog"
+          aria-label={t('msg.editDialogAria')}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3>{t('msg.editTitle')}</h3>
           <textarea
             value={editing.draft}
             onChange={(e) => setEditing({ ...editing, draft: e.target.value })}
@@ -880,10 +963,10 @@ const Chat: React.FC<ChatProps> = ({
           />
           <div className="sf-edit-msg-actions">
             <button type="button" className="sf-btn sf-btn--ghost sf-btn--small" onClick={() => setEditing(null)}>
-              Cancel
+              {t('common.cancel')}
             </button>
             <button type="button" className="sf-btn sf-btn--small" onClick={() => void saveEdit()}>
-              Save
+              {t('common.save')}
             </button>
           </div>
         </div>
@@ -895,14 +978,14 @@ const Chat: React.FC<ChatProps> = ({
     <div className="sf-chat">
       <ConfirmDialog
         isOpen={!!confirm}
-        title={confirm?.kind === 'delete' ? 'Delete message?' : 'Clear entire chat?'}
+        title={confirm?.kind === 'delete' ? t('chat.deleteMsgTitle') : t('chat.clearChatTitle')}
         message={
           confirm?.kind === 'delete'
-            ? 'Delete this message for everyone?'
-            : 'Clear the entire chat?'
+            ? t('chat.deleteMsgConfirm')
+            : t('chat.clearChatConfirm')
         }
-        confirmText={confirm?.kind === 'delete' ? 'Delete' : 'Clear'}
-        cancelText="Cancel"
+        confirmText={confirm?.kind === 'delete' ? t('common.remove') : t('chat.clearChat')}
+        cancelText={t('common.cancel')}
         danger
         busy={confirmBusy}
         onCancel={() => setConfirm(null)}
@@ -958,7 +1041,7 @@ const Chat: React.FC<ChatProps> = ({
             type="button"
             className="sf-icon-btn"
             title={conversation.isGroup ? t('chat.groupCall') : t('chat.voiceCall')}
-            aria-label="Voice call"
+            aria-label={conversation.isGroup ? t('chat.groupCall') : t('chat.voiceCall')}
             disabled={!canCall}
             onClick={startCallClick}
           >
@@ -968,8 +1051,8 @@ const Chat: React.FC<ChatProps> = ({
             ref={menuBtnRef}
             type="button"
             className="sf-icon-btn"
-            title="More"
-            aria-label="More"
+            title={t('chat.more')}
+            aria-label={t('chat.more')}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((o) => !o)}
           >
@@ -1011,11 +1094,12 @@ const Chat: React.FC<ChatProps> = ({
           }
         }}
       >
+        {loadErr ? <div className="sf-chat-notice">{loadErr}</div> : null}
         {loading && messages.length === 0 && (
-          <div className="sf-loading-msg">Loading…</div>
+          <div className="sf-loading-msg">{t('chat.loading')}</div>
         )}
         {loading && messages.length > 0 && (
-          <div className="sf-loading-msg">Loading older…</div>
+          <div className="sf-loading-msg">{t('chat.loadingOlder')}</div>
         )}
         {messages.map((message) => (
           <MessageBubble
@@ -1044,9 +1128,9 @@ const Chat: React.FC<ChatProps> = ({
         disabled={!canSendMessage}
         disabledHint={
           peerLocked
-            ? 'This user is locked. Unlock to send messages.'
+            ? t('chat.disabledLockedHint')
             : !canSendMessage
-              ? 'You cannot send messages in this chat.'
+              ? t('chat.disabledCannotSend')
               : undefined
         }
         replyPreview={

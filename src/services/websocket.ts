@@ -27,6 +27,7 @@ class WebSocketService {
   private groupVoiceJoinHandlers: ((p: GroupVoicePresencePayload) => void)[] = [];
   private groupVoiceLeaveHandlers: ((p: GroupVoicePresencePayload) => void)[] = [];
   private callSignalHandlers: CallHandler[] = [];
+  private callEndHandlers: CallHandler[] = [];
   private friendsUpdatedHandlers: (() => void)[] = [];
 
   disconnect() {
@@ -47,7 +48,10 @@ class WebSocketService {
     } else {
       base = 'ws://localhost:8080';
     }
-    this.ws = new WebSocket(`${base.replace(/\/$/, '')}/ws?token=${encodeURIComponent(token)}`);
+    // this.ws = new WebSocket(`${base.replace(/\/$/, '')}/ws?token=${encodeURIComponent(token)}`);
+    // Вернуться к URL, но исправить бэкенд
+    
+    this.ws = new WebSocket(`${base}/ws?token=${encodeURIComponent(token)}`);
 
     this.ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -110,6 +114,11 @@ class WebSocketService {
         break;
       case 'call-signal':
         this.callSignalHandlers.forEach((handler) =>
+          handler({ ...(data.payload as object), fromUserId: data.senderId })
+        );
+        break;
+      case 'call-end':
+        this.callEndHandlers.forEach((handler) =>
           handler({ ...(data.payload as object), fromUserId: data.senderId })
         );
         break;
@@ -200,6 +209,13 @@ class WebSocketService {
     this.send({
       type: 'call-answer',
       data: { conversationId, callerId, encryptedAnswer: answer },
+    });
+  }
+
+  sendCallEnd(conversationId: string, targetId: string, reason = 'ended') {
+    this.send({
+      type: 'call-end',
+      data: { conversationId, targetId, reason },
     });
   }
 
@@ -314,6 +330,11 @@ class WebSocketService {
   onCallSignal(handler: CallHandler): () => void {
     this.callSignalHandlers.push(handler);
     return () => removeHandler(this.callSignalHandlers, handler);
+  }
+
+  onCallEnd(handler: CallHandler): () => void {
+    this.callEndHandlers.push(handler);
+    return () => removeHandler(this.callEndHandlers, handler);
   }
 
   onFriendsUpdated(handler: () => void): () => void {

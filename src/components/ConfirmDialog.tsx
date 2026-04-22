@@ -1,6 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { IconX } from './icons';
+import { t } from '../utils/i18n';
 
 export default function ConfirmDialog(props: {
   isOpen: boolean;
@@ -17,8 +18,8 @@ export default function ConfirmDialog(props: {
     isOpen,
     title,
     message,
-    confirmText = 'Yes',
-    cancelText = 'No',
+    confirmText = t('common.yes'),
+    cancelText = t('common.no'),
     danger,
     busy,
     onConfirm,
@@ -35,7 +36,7 @@ export default function ConfirmDialog(props: {
       >
         <div className="sf-modal-head">
           <h2 className="sf-modal-title">{title}</h2>
-          <button type="button" className="sf-modal-close" onClick={onCancel} aria-label="Close">
+          <button type="button" className="sf-modal-close" onClick={onCancel} aria-label={t('common.close')}>
             <IconX width={20} height={20} />
           </button>
         </div>

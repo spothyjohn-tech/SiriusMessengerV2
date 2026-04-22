@@ -77,7 +77,7 @@ const CreateGroupWindow: React.FC<CreateGroupWindowProps> = ({
           <h2 id="sf-group-title" className="sf-modal-title">
             {t('group.newTitle')}
           </h2>
-          <button type="button" className="sf-modal-close" onClick={onClose} aria-label="Close">
+          <button type="button" className="sf-modal-close" onClick={onClose} aria-label={t('common.close')}>
             <IconX width={20} height={20} />
           </button>
         </div>
@@ -101,7 +101,7 @@ const CreateGroupWindow: React.FC<CreateGroupWindowProps> = ({
             />
           </div>
           <p className="sf-auth-label">{t('group.members')}</p>
-          <ul className="sf-group-member-list">
+          <ul className="sf-group-check-list">
             {others.map((u) => (
               <li key={u.id}>
                 <label className="sf-group-check-row">

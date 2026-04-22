@@ -9,6 +9,7 @@ const getApiUrl = () => {
   return 'http://localhost:8080/api';
 };
 const API_URL = getApiUrl();
+export { API_URL };
 
 function authHeader() {
   const token = authService.getToken();
@@ -28,6 +29,14 @@ export const messageService = {
 
   async removeFriend(userId: string): Promise<void> {
     await axios.delete(`${API_URL}/friends/${userId}`, { headers: authHeader() });
+  },
+
+  async blockUser(userId: string): Promise<void> {
+    await axios.post(`${API_URL}/users/${userId}/block`, {}, { headers: authHeader() });
+  },
+
+  async unblockUser(userId: string): Promise<void> {
+    await axios.delete(`${API_URL}/users/${userId}/block`, { headers: authHeader() });
   },
 
   async getFriendRequests(): Promise<{ incoming: FriendRequest[]; outgoing: FriendRequest[] }> {
@@ -105,6 +114,31 @@ export const messageService = {
     const body: Record<string, unknown> = { conversationId, encryptedContent, iv, senderKey };
     if (messageType) body.messageType = messageType;
     const { data } = await axios.post<Message>(`${API_URL}/messages`, body, { headers: authHeader() });
+    return data;
+  },
+
+  async uploadFile(
+    file: File,
+    conversationId: string,
+    onProgress?: (progress01: number) => void
+  ): Promise<{ id: string; name: string; mime: string; size: number; fileLink: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('conversationId', conversationId);
+    const { data } = await axios.post<{ id: string; name: string; mime: string; size: number; fileLink: string }>(
+      `${API_URL}/messages/upload`,
+      form,
+      {
+        headers: authHeader(),
+        onUploadProgress: (ev) => {
+          if (!onProgress) return;
+          const total = typeof ev.total === 'number' && ev.total > 0 ? ev.total : file.size;
+          if (!total || total <= 0) return;
+          const p = Math.max(0, Math.min(1, (ev.loaded || 0) / total));
+          onProgress(p);
+        },
+      }
+    );
     return data;
   },
 

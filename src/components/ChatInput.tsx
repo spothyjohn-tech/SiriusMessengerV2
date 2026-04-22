@@ -152,6 +152,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     } catch {
       setRecording(false);
       stopRecordingCleanup();
+      alert(t('call.micPermissionRequired'));
     }
   };
 
@@ -191,7 +192,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             ) : null}
           </button>
           <button type="button" className="sf-btn sf-btn--ghost sf-btn--small" onClick={onReplyCancel}>
-            Cancel
+            {t('common.cancel')}
           </button>
         </div>
       ) : null}
@@ -206,7 +207,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               setPendingImage(null);
             }}
           >
-            Remove
+            {t('common.remove')}
           </button>
         </div>
       ) : null}
@@ -222,9 +223,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
         <button
           type="button"
           className="sf-input-attach sf-input-attach--file"
-          title="Attach file"
+          title={t('input.attachFile')}
           disabled={disabled || !onSendFile}
-          aria-label="Attach file"
+          aria-label={t('input.attachFile')}
           onClick={() => fileRef.current?.click()}
         >
           <IconFile width={20} height={20} />
@@ -248,7 +249,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   submit();
                 }
               }}
-              placeholder={disabled ? 'Unavailable' : 'Type a message...'}
+              placeholder={disabled ? t('input.unavailable') : t('input.placeholder')}
               disabled={disabled}
             />
             {stickerOpen && onSendSticker ? (
@@ -281,7 +282,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             type="submit"
             className="sf-send-btn"
             disabled={disabled || (!value.trim() && !pendingImage)}
-            aria-label="Send message"
+            aria-label={t('input.sendMessage')}
           >
             <IconSend width={20} height={20} />
           </button>
@@ -289,9 +290,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
         <button
           type="button"
           className={`sf-input-attach sf-input-attach--mic${recording ? ' sf-input-attach--rec' : ''}`}
-          title={recording ? 'Stop and send recording' : 'Record voice'}
+          title={recording ? t('input.stopAndSendRecording') : t('input.recordVoice')}
           disabled={disabled || !onSendVoice}
-          aria-label={recording ? 'Stop recording' : 'Record voice'}
+          aria-label={recording ? t('input.stopRecording') : t('input.recordVoice')}
           onClick={() => void toggleRecord()}
         >
           <IconMic width={20} height={20} />

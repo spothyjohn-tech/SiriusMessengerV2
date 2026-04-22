@@ -45,36 +45,98 @@ export class CryptoService {
     this.privateKeyPEM = null;
   }
 
-  async generateKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
+  /** Exposes the currently loaded private key PEM (if any) for internal flows like encrypted backup upload. */
+  getActivePrivateKeyPEM(): string | null {
+    return this.privateKeyPEM;
+  }
+
+  /**
+   * Encrypt a PEM private key for server-side backup.
+   * The server stores only ciphertext; the password never leaves the client.
+   *
+   * Format: JSON string { v, kdf, iter, salt, iv, ct } with base64 fields.
+   */
+  async encryptPrivateKeyForBackup(privateKeyPem: string, password: string): Promise<string> {
     if (!window.isSecureContext || !window.crypto?.subtle) {
       throw new Error(
-        'Secure context required for key generation. Open Sirius via https:// or on localhost.'
+        'Secure context required for encryption. Open Sirius via https:// or on localhost.'
       );
     }
-    const keyPair = await window.crypto.subtle.generateKey(
-      {
-        name: 'RSA-OAEP',
-        modulusLength: 4096,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash: 'SHA-256',
-      },
-      true,
-      ['encrypt', 'decrypt']
-    );
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
 
-    this.keyPair = keyPair;
+    const key = await this.deriveBackupKey(password, salt, 250_000);
+    const pt = new TextEncoder().encode(privateKeyPem);
+    const ct = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, pt);
 
-    // Export keys to PEM format
-    const publicKeyRaw = await window.crypto.subtle.exportKey('spki', keyPair.publicKey);
-    const privateKeyRaw = await window.crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
-
-    const publicKey = this.arrayBufferToPEM(publicKeyRaw, 'PUBLIC KEY');
-    const privateKey = this.arrayBufferToPEM(privateKeyRaw, 'PRIVATE KEY');
-
-    this.privateKeyPEM = privateKey;
-
-    return { publicKey, privateKey };
+    return JSON.stringify({
+      v: 1,
+      kdf: 'PBKDF2-SHA256',
+      iter: 250_000,
+      salt: this.arrayBufferToBase64(salt.buffer.slice(salt.byteOffset, salt.byteOffset + salt.byteLength)),
+      iv: this.arrayBufferToBase64(iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength)),
+      ct: this.arrayBufferToBase64(ct),
+    });
   }
+
+  async decryptPrivateKeyBackup(privateKeyEncrypted: string, password: string): Promise<string> {
+    if (!window.isSecureContext || !window.crypto?.subtle) {
+      throw new Error(
+        'Secure context required for decryption. Open Sirius via https:// or on localhost.'
+      );
+    }
+    let parsed: any;
+    try {
+      parsed = JSON.parse(privateKeyEncrypted);
+    } catch {
+      throw new Error('Invalid encrypted key format');
+    }
+    if (!parsed || parsed.v !== 1 || parsed.kdf !== 'PBKDF2-SHA256') {
+      throw new Error('Unsupported encrypted key format');
+    }
+    const iter = typeof parsed.iter === 'number' ? parsed.iter : 250_000;
+    const salt = new Uint8Array(this.base64ToArrayBuffer(String(parsed.salt || '')));
+    const iv = new Uint8Array(this.base64ToArrayBuffer(String(parsed.iv || '')));
+    const ct = this.base64ToArrayBuffer(String(parsed.ct || ''));
+
+    if (salt.byteLength < 8 || iv.byteLength !== 12) {
+      throw new Error('Invalid encrypted key parameters');
+    }
+
+    const key = await this.deriveBackupKey(password, salt, iter);
+    const pt = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+    return new TextDecoder().decode(pt);
+  }
+
+async generateKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
+  if (!window.isSecureContext || !window.crypto?.subtle) {
+    throw new Error(
+      'Secure context required for key generation. Open Sirius via https:// or on localhost.'
+    );
+  }
+  const keyPair = await window.crypto.subtle.generateKey(
+    {
+      name: 'RSA-OAEP',
+      modulusLength: 4096,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['encrypt', 'decrypt']
+  );
+
+  this.keyPair = keyPair;
+
+  const publicKeyRaw = await window.crypto.subtle.exportKey('spki', keyPair.publicKey);
+  const privateKeyRaw = await window.crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+
+  const publicKey = this.arrayBufferToPEM(publicKeyRaw, 'PUBLIC KEY');
+  const privateKey = this.arrayBufferToPEM(privateKeyRaw, 'PRIVATE KEY');
+
+  this.privateKeyPEM = privateKey;  // ← ВОТ ЭТУ СТРОКУ ДОБАВЬТЕ (если её нет)
+
+  return { publicKey, privateKey };
+}
 
   async encryptMessage(message: string, recipientPublicKeyPEM: string): Promise<{ encryptedContent: string; iv: string; encryptedKey: string }> {
     // Import recipient's public key
@@ -251,6 +313,23 @@ export class CryptoService {
 
   private writePrivateKeyMap(map: Record<string, string>): void {
     localStorage.setItem(CryptoService.PRIVATE_KEYS_BY_USER_STORAGE, JSON.stringify(map));
+  }
+
+  private async deriveBackupKey(password: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
+    const baseKey = await window.crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(password),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveKey']
+    );
+    return window.crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
   }
 }
 

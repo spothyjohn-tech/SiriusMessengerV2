@@ -12,7 +12,8 @@ import {
   setStoredPlaybackVolume,
 } from '../utils/callMediaPrefs';
 import { IconX } from './icons';
-import { t, getStoredLang, setStoredLang, type AppLang } from '../utils/i18n';
+import { fmt, t, getStoredLang, setStoredLang, type AppLang } from '../utils/i18n';
+import { userError } from '../utils/userError';
 
 const NOTIF_KEY = 'sirius_pref_desktop_notif';
 const SOUND_KEY = 'sirius_pref_sound';
@@ -213,7 +214,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
   const saveProfile = async () => {
     const u = username.trim();
     if (!u) {
-      setProfileErr('Display name cannot be empty');
+      setProfileErr(t('settings.errDisplayNameEmpty'));
       return;
     }
     setProfileBusy(true);
@@ -225,8 +226,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
       });
       onUserUpdated(updated);
     } catch (e: unknown) {
-      const ax = e as { response?: { data?: { error?: string } } };
-      setProfileErr(ax.response?.data?.error || 'Could not save profile');
+      setProfileErr(userError(e, 'settings.errSaveProfile'));
     } finally {
       setProfileBusy(false);
     }
@@ -240,7 +240,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
       setAvatarDataUrl(await readImageAsDataUrl(f));
       setProfileErr(null);
     } catch (err) {
-      setProfileErr(err instanceof Error ? err.message : 'Invalid image');
+      setProfileErr(userError(err, 'settings.errInvalidImage'));
     }
   };
 
@@ -269,7 +269,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
           <h2 id="sf-settings-title" className="sf-modal-title">
             {t('settings.title')}
           </h2>
-          <button type="button" className="sf-modal-close" onClick={onClose} aria-label="Close">
+          <button type="button" className="sf-modal-close" onClick={onClose} aria-label={t('common.close')}>
             <IconX width={20} height={20} />
           </button>
         </div>
@@ -298,7 +298,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                   <p className="sf-settings-email">{user.email}</p>
                   <div className="sf-group-avatar-actions" style={{ marginTop: '0.5rem' }}>
                     <label className="sf-btn sf-btn--primary-sm sf-file-label">
-                      Change photo
+                      {t('common.changePhoto')}
                       <input
                         type="file"
                         accept="image/*"
@@ -314,14 +314,14 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                         onClick={clearAvatar}
                         disabled={profileBusy}
                       >
-                        Remove photo
+                        {t('settings.removePhoto')}
                       </button>
                     ) : null}
                   </div>
                 </div>
               </div>
               <label className="sf-settings-field-block">
-                <span className="sf-settings-toggle-label">Display name</span>
+                <span className="sf-settings-toggle-label">{t('settings.displayName')}</span>
                 <input
                   type="text"
                   className="sf-settings-input"
@@ -338,7 +338,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                 onClick={() => void saveProfile()}
                 disabled={profileBusy}
               >
-                Save profile
+                {t('settings.saveProfile')}
               </button>
               <button
                 type="button"
@@ -349,7 +349,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                   onLogout();
                 }}
               >
-                Log out
+                {t('settings.logout')}
               </button>
             </section>
           )}
@@ -357,7 +357,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
           {section === 'design' && (
             <section className="sf-settings-section sf-settings-section--solo">
               <h3 className="sf-settings-section-title">{t('nav.design')}</h3>
-              <p className="sf-settings-hint">Choose how Sirius looks on this device.</p>
+              <p className="sf-settings-hint">{t('settings.designHint')}</p>
               <label className="sf-settings-field-block">
                 <span className="sf-settings-toggle-label">{t('settings.appearanceLabel')}</span>
                 <select
@@ -399,11 +399,11 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
           {section === 'notifications' && (
             <section className="sf-settings-section sf-settings-section--solo">
               <h3 className="sf-settings-section-title">{t('nav.notifications')}</h3>
-              <p className="sf-settings-hint">Control desktop alerts for new activity.</p>
+              <p className="sf-settings-hint">{t('settings.notificationsHint')}</p>
               <label className="sf-settings-toggle-row">
                 <div>
-                  <span className="sf-settings-toggle-label">Desktop notifications</span>
-                  <span className="sf-settings-toggle-hint">Browser permission may be required</span>
+                  <span className="sf-settings-toggle-label">{t('settings.desktopNotifications')}</span>
+                  <span className="sf-settings-toggle-hint">{t('settings.desktopNotificationsHint')}</span>
                 </div>
                 <input
                   type="checkbox"
@@ -425,9 +425,9 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
           {section === 'sound' && (
             <section className="sf-settings-section sf-settings-section--solo">
               <h3 className="sf-settings-section-title">{t('nav.sound')}</h3>
-              <p className="sf-settings-hint">Calls and recordings use your microphone; call playback uses the selected output when the browser supports it.</p>
+              <p className="sf-settings-hint">{t('settings.soundHint')}</p>
               <label className="sf-settings-field-block">
-                <span className="sf-settings-toggle-label">Microphone</span>
+                <span className="sf-settings-toggle-label">{t('settings.microphone')}</span>
                 <select
                   className="sf-settings-select"
                   value={selectedMic}
@@ -438,16 +438,16 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                     window.dispatchEvent(new Event('sirius-audio-prefs'));
                   }}
                 >
-                  <option value="">Default</option>
+                  <option value="">{t('common.default')}</option>
                   {audioInputs.map((d) => (
                     <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Mic ${d.deviceId.slice(0, 8)}…`}
+                      {d.label || fmt('settings.micFallback', { id: d.deviceId.slice(0, 8) })}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="sf-settings-field-block">
-                <span className="sf-settings-toggle-label">Microphone volume</span>
+                <span className="sf-settings-toggle-label">{t('settings.microphoneVolume')}</span>
                 <input
                   type="range"
                   className="sf-settings-range"
@@ -463,7 +463,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                 />
               </label>
               <div className="sf-settings-field-block">
-                <span className="sf-settings-toggle-label">Microphone level</span>
+                <span className="sf-settings-toggle-label">{t('settings.microphoneLevel')}</span>
                 <div
                   style={{
                     height: 10,
@@ -483,7 +483,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                 </div>
               </div>
               <label className="sf-settings-field-block">
-                <span className="sf-settings-toggle-label">Speaker / output</span>
+                <span className="sf-settings-toggle-label">{t('settings.outputDevice')}</span>
                 <select
                   className="sf-settings-select"
                   value={selectedSpeaker}
@@ -494,19 +494,24 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                     window.dispatchEvent(new Event('sirius-audio-prefs'));
                   }}
                 >
-                  <option value="">Default</option>
+                  <option value="">{t('common.default')}</option>
                   {audioOutputs.map((d) => (
                     <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Output ${d.deviceId.slice(0, 8)}…`}
+                      {d.label || fmt('settings.outputFallback', { id: d.deviceId.slice(0, 8) })}
                     </option>
                   ))}
                 </select>
               </label>
-              <button type="button" className="sf-btn sf-btn--ghost sf-btn--small" style={{ marginBottom: '1rem' }} onClick={() => void refreshAudioDevices()}>
-                Refresh device list
+              <button
+                type="button"
+                className="sf-btn sf-btn--ghost sf-btn--small"
+                style={{ marginBottom: '1rem' }}
+                onClick={() => void refreshAudioDevices()}
+              >
+                {t('settings.refreshDevices')}
               </button>
               <label className="sf-settings-field-block">
-                <span className="sf-settings-toggle-label">Messenger sounds volume</span>
+                <span className="sf-settings-toggle-label">{t('settings.msgSoundsVolume')}</span>
                 <input
                   type="range"
                   className="sf-settings-range"
@@ -538,8 +543,8 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
               </label>
               <label className="sf-settings-toggle-row">
                 <div>
-                  <span className="sf-settings-toggle-label">Message sounds</span>
-                  <span className="sf-settings-toggle-hint">Play a tone when new messages arrive</span>
+                  <span className="sf-settings-toggle-label">{t('settings.msgSounds')}</span>
+                  <span className="sf-settings-toggle-hint">{t('settings.msgSoundsHint')}</span>
                 </div>
                 <input
                   type="checkbox"
@@ -555,7 +560,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
             </section>
           )}
 
-          <p className="sf-settings-foot">Sirius — 1:1 chats use RSA + AES; groups use a shared chat key</p>
+          <p className="sf-settings-foot">{t('settings.footerCrypto')}</p>
         </div>
       </div>
     </div>

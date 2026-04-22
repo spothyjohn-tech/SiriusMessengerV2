@@ -6,6 +6,9 @@ import { AvatarBubble } from '../utils/avatar';
 import { loadPlainCache } from '../utils/messagePlainCache';
 import { IconFile } from './icons';
 import VoiceMessagePlayer from './VoiceMessagePlayer';
+import { getStoredLang, t } from '../utils/i18n';
+import { API_URL } from '../services/message';
+import { authService } from '../services/auth';
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -42,7 +45,7 @@ export type ParsedPayload =
       replyThumbB64?: string;
     }
   | { kind: 'voice'; mime: string; b64: string }
-  | { kind: 'file'; name: string; mime: string; b64: string }
+  | { kind: 'file'; name: string; mime: string; b64?: string; url?: string }
   | { kind: 'sticker'; char: string };
 
 export function isRichMediaMime(mime: string): boolean {
@@ -63,13 +66,13 @@ export function parseDecryptedPayload(plain: string): ParsedPayload {
       if (o._sirius === 'voice' && typeof o.mime === 'string' && typeof o.b64 === 'string') {
         return { kind: 'voice', mime: o.mime, b64: o.b64 };
       }
-      if (
-        o._sirius === 'file' &&
-        typeof o.name === 'string' &&
-        typeof o.mime === 'string' &&
-        typeof o.b64 === 'string'
-      ) {
-        return { kind: 'file', name: o.name, mime: o.mime, b64: o.b64 };
+      if (o._sirius === 'file' && typeof o.name === 'string' && typeof o.mime === 'string') {
+        if (typeof o.b64 === 'string') {
+          return { kind: 'file', name: o.name, mime: o.mime, b64: o.b64 };
+        }
+        if (typeof o.url === 'string') {
+          return { kind: 'file', name: o.name, mime: o.mime, url: o.url };
+        }
       }
       if (o._sirius === 'textReply' && typeof o.body === 'string') {
         return {
@@ -101,16 +104,16 @@ export function searchTextFromPayload(p: ParsedPayload): string {
     const q = p.replySnippet ? `${p.replySnippet} ${p.text}` : p.text;
     return q;
   }
-  if (p.kind === 'voice') return 'Voice message';
+  if (p.kind === 'voice') return t('msg.voiceMessage');
   if (p.kind === 'sticker') return p.char;
-  return `File: ${p.name}`;
+  return t('msg.file').replace('{name}', p.name);
 }
 
 export function copySummaryFromPayload(p: ParsedPayload): string {
   if (p.kind === 'text') return p.text;
-  if (p.kind === 'voice') return 'Voice message';
+  if (p.kind === 'voice') return t('msg.voiceMessage');
   if (p.kind === 'sticker') return p.char;
-  return `File: ${p.name}`;
+  return t('msg.file').replace('{name}', p.name);
 }
 
 export function editableTextFromPayload(plain: string, p: ParsedPayload): string | null {
@@ -146,6 +149,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [plain, setPlain] = useState<string>(isOwn && localPlaintext ? localPlaintext : '');
   const [err, setErr] = useState(false);
   const [loading, setLoading] = useState(!(isOwn && localPlaintext));
+  const [hideOwnPlaceholder, setHideOwnPlaceholder] = useState(false);
   const [lightbox, setLightbox] = useState<'image' | 'video' | null>(null);
   const onPlainRef = useRef(onPlaintext);
   const onFullRef = useRef(onFullPlaintext);
@@ -174,14 +178,41 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   const mediaUrl = useMemo(() => {
     if (parsed?.kind !== 'file' || !isRichMediaMime(parsed.mime)) return null;
     try {
-      const bin = atob(parsed.b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const blob = new Blob([bytes], { type: parsed.mime || 'application/octet-stream' });
-      return URL.createObjectURL(blob);
+      if (parsed.b64) {
+        const bin = atob(parsed.b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: parsed.mime || 'application/octet-stream' });
+        return URL.createObjectURL(blob);
+      }
+      return null;
     } catch {
       return null;
     }
+  }, [parsed]);
+
+  const [remoteFileUrl, setRemoteFileUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (parsed?.kind !== 'file' || !parsed.url) {
+      setRemoteFileUrl(null);
+      return;
+    }
+    const token = authService.getToken();
+    if (!token) return;
+    const absolute = parsed.url.startsWith('http') ? parsed.url : `${API_URL}${parsed.url.replace(/^\/api/, '')}`;
+    void fetch(absolute, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('download failed'))))
+      .then((blob) => {
+        if (cancelled) return;
+        setRemoteFileUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteFileUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [parsed]);
 
   useEffect(() => {
@@ -193,8 +224,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   useEffect(() => {
     return () => {
       if (mediaUrl) URL.revokeObjectURL(mediaUrl);
+      if (remoteFileUrl) URL.revokeObjectURL(remoteFileUrl);
     };
-  }, [mediaUrl]);
+  }, [mediaUrl, remoteFileUrl]);
 
   useEffect(() => {
     if (isOwn && localPlaintext) {
@@ -212,13 +244,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
         setPlain(hit);
         setLoading(false);
         setErr(false);
+        setHideOwnPlaceholder(false);
         const p = parseDecryptedPayload(hit);
         onPlainRef.current?.(message.id, searchTextFromPayload(p));
         onFullRef.current?.(message.id, hit);
       } else {
         setLoading(false);
         setErr(false);
-        setPlain('Sent message (encrypted for recipient)');
+        // Don't show "Sent message (encrypted...)" placeholders at all.
+        setPlain('');
+        setHideOwnPlaceholder(true);
       }
       return;
     }
@@ -255,6 +290,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           );
         }
         if (!cancelled) {
+          // Some backends send a placeholder like "Sent message (encrypted for recipient)".
+          // It's not useful in the UI, so hide it completely.
+          if (dec.trim().startsWith('Sent message (')) {
+            setPlain('');
+            setHideOwnPlaceholder(true);
+            setErr(false);
+            return;
+          }
           setPlain(dec);
           setErr(false);
           const p = parseDecryptedPayload(dec);
@@ -264,7 +307,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
       } catch {
         if (!cancelled) {
           setErr(true);
-          setPlain('Could not decrypt message');
+          setPlain(t('msg.decryptFailed'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -275,13 +318,13 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     };
   }, [message, isOwn, localPlaintext, message.id, message.senderKey, groupConversationId]);
 
-  const time = new Date(message.createdAt).toLocaleTimeString([], {
+  const time = new Date(message.createdAt).toLocaleTimeString(getStoredLang() === 'ru' ? 'ru-RU' : 'en-US', {
     hour: 'numeric',
     minute: '2-digit',
   });
 
   const openLightbox = (kind: 'image' | 'video') => {
-    if (!mediaUrl) return;
+    if (!(mediaUrl || remoteFileUrl)) return;
     setLightbox(kind);
   };
 
@@ -303,7 +346,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                 ↩
               </span>
               <span className="sf-msg-reply-body">
-                <span className="sf-msg-reply-who">Reply</span>
+                <span className="sf-msg-reply-who">{t('msg.reply')}</span>
                 <span className="sf-msg-reply-snippet">{p.replySnippet}</span>
               </span>
               {p.replyKind && (p.replyKind === 'image' || p.replyKind === 'gif') && p.replyMime && p.replyThumbB64 ? (
@@ -323,16 +366,45 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
     if (p.kind === 'sticker') {
       return (
-        <span className="sf-msg-sticker" role="img" aria-label="Sticker">
+        <span className="sf-msg-sticker" role="img" aria-label={t('msg.stickerAria')}>
           {p.char}
         </span>
       );
     }
     if (p.kind === 'voice') {
-      return voiceUrl ? <VoiceMessagePlayer src={voiceUrl} /> : <span className="sf-msg-voice-fallback">Voice message</span>;
+      return voiceUrl ? <VoiceMessagePlayer src={voiceUrl} /> : <span className="sf-msg-voice-fallback">{t('msg.voiceMessage')}</span>;
     }
-    const href = `data:${p.mime};base64,${p.b64}`;
-    if (mediaUrl && isRichMediaMime(p.mime)) {
+    if (p.kind === 'file' && (p as any).uploading) {
+      const prog = (p as any).progress;
+      const pct = typeof prog === 'number' && Number.isFinite(prog) ? Math.round(prog * 100) : null;
+      return (
+        <span className="sf-msg-file-link" aria-label={t('common.loading')}>
+          <span className="sf-msg-file-icon" aria-hidden>
+            <IconFile width={18} height={18} />
+          </span>
+          <span className="sf-msg-file-name">
+            {p.name}
+            <span style={{ opacity: 0.75 }}>{pct !== null ? ` (${pct}%)` : ` (${t('common.loading')})`}</span>
+          </span>
+        </span>
+      );
+    }
+    if (p.kind === 'file' && (p as any).failed) {
+      return (
+        <span className="sf-msg-file-link" aria-label={t('error.unknown')}>
+          <span className="sf-msg-file-icon" aria-hidden>
+            <IconFile width={18} height={18} />
+          </span>
+          <span className="sf-msg-file-name">
+            {p.name}
+            <span style={{ opacity: 0.75 }}> ({t('error.unknown')})</span>
+          </span>
+        </span>
+      );
+    }
+    const href = p.b64 ? `data:${p.mime};base64,${p.b64}` : remoteFileUrl || '#';
+    const mediaHref = mediaUrl || remoteFileUrl;
+    if (mediaHref && isRichMediaMime(p.mime)) {
       const isVideo = p.mime.toLowerCase().startsWith('video/');
       return (
         <span className="sf-msg-media-wrap">
@@ -340,7 +412,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             <>
               <video
                 className="sf-msg-media-thumb sf-msg-media-video"
-                src={mediaUrl}
+                src={mediaHref}
                 controls
                 playsInline
                 preload="metadata"
@@ -350,7 +422,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                 className="sf-msg-fullscreen-btn"
                 onClick={() => openLightbox('video')}
               >
-                Full screen
+                {t('msg.fullScreen')}
               </button>
             </>
           ) : (
@@ -358,16 +430,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
               type="button"
               className="sf-msg-media-btn"
               onClick={() => openLightbox('image')}
-              aria-label="Open full size"
+              aria-label={t('common.openFullSize')}
             >
-              <img className="sf-msg-media-thumb" src={mediaUrl} alt="" />
+              <img className="sf-msg-media-thumb" src={mediaHref} alt="" />
             </button>
           )}
         </span>
       );
     }
     return (
-      <a className="sf-msg-file-link" href={href} download={p.name}>
+      <a className="sf-msg-file-link" href={href} download={p.name} target="_blank" rel="noreferrer">
         <span className="sf-msg-file-icon" aria-hidden>
           <IconFile width={18} height={18} />
         </span>
@@ -379,7 +451,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   const handleContextMenu = (e: React.MouseEvent) => {
     if (!onMessageContextMenu || loading || err) return;
     const dec = plain;
-    if (!dec || dec.startsWith('Sent message (')) return;
+    if (!dec) return;
     const p = parseDecryptedPayload(dec);
     const imgCtx = isImageOrGifFilePayload(p);
     if (!imgCtx && !isOwn) return;
@@ -396,7 +468,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     ((parsed.kind === 'file' && isRichMediaMime(parsed.mime)) || parsed.kind === 'sticker');
 
   const lightboxNode =
-    lightbox && mediaUrl
+    lightbox && (mediaUrl || remoteFileUrl)
       ? createPortal(
           <div
             className="sf-media-lightbox"
@@ -407,14 +479,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             {lightbox === 'image' ? (
               <img
                 className="sf-media-lightbox-inner"
-                src={mediaUrl}
+                src={mediaUrl || remoteFileUrl || ''}
                 alt=""
                 onClick={(e) => e.stopPropagation()}
               />
             ) : (
               <video
                 className="sf-media-lightbox-inner"
-                src={mediaUrl}
+                src={mediaUrl || remoteFileUrl || ''}
                 controls
                 autoPlay
                 playsInline
@@ -425,6 +497,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           document.body
         )
       : null;
+
+  if (hideOwnPlaceholder) return null;
 
   return (
     <>
